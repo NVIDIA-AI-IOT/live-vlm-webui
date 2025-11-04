@@ -54,13 +54,13 @@ async def websocket_handler(request):
             if msg.type == web.WSMsgType.TEXT:
                 try:
                     data = json.loads(msg.data)
-                    
+
                     if data.get('type') == 'update_prompt':
                         new_prompt = data.get('prompt', '').strip()
                         if new_prompt and vlm_service:
                             vlm_service.update_prompt(new_prompt)
                             logger.info(f"Prompt updated: {new_prompt}")
-                            
+
                             # Confirm to client
                             await ws.send_json({
                                 "type": "prompt_updated",

@@ -290,10 +290,10 @@
                 <option value="How many people are in this image? State locations.">People Counting</option>
                 <option value="Are there any pets or animals visible? If yes, describe them.">Pet/Animal Detection</option>
             </select>
-            
+
             <label for="promptText">Custom Prompt:</label>
             <textarea id="promptText" placeholder="Enter your custom prompt here...">Describe what you see in this image in one sentence.</textarea>
-            
+
             <button id="updatePromptBtn" class="btn-update">Update Prompt</button>
         </div>
 
@@ -364,14 +364,14 @@
                 alert('Please enter a prompt');
                 return;
             }
-            
+
             if (websocket && websocket.readyState === WebSocket.OPEN) {
                 websocket.send(JSON.stringify({
                     type: 'update_prompt',
                     prompt: newPrompt
                 }));
                 updateStatus('Prompt updated!', 'connected');
-                
+
                 // Visual feedback
                 updatePromptBtn.textContent = '✓ Updated!';
                 setTimeout(() => {
