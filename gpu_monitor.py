@@ -282,29 +282,47 @@ class NVMLMonitor(GPUMonitor):
 
 
 class JetsonThorMonitor(GPUMonitor):
-    """Jetson Thor GPU monitoring using nvhost_podgov and tegrastats"""
+    """Jetson Thor GPU monitoring using jtop (jetson_stats) with fallback to nvhost_podgov"""
 
     def __init__(self, history_size: int = 60):
         super().__init__(history_size)
         self.gpu_name = "NVIDIA Thor"
         self.available = False
+        self.use_jtop = False
+        self.jtop_instance = None
 
-        # Thor-specific paths (JetPack 7 / L4T r38.2)
-        self.gpu_base_path = "/sys/devices/platform/bus@0/d0b0000000.pcie/pci0000:00/0000:00:00.0/0000:01:00.0"
-        self.gpc_load_target = f"{self.gpu_base_path}/gpu-gpc-0/devfreq/gpu-gpc-0/nvhost_podgov/load_target"
-        self.gpc_load_max = f"{self.gpu_base_path}/gpu-gpc-0/devfreq/gpu-gpc-0/nvhost_podgov/load_max"
-        self.nvd_load_target = f"{self.gpu_base_path}/gpu-nvd-0/devfreq/gpu-nvd-0/nvhost_podgov/load_target"
-        self.nvd_load_max = f"{self.gpu_base_path}/gpu-nvd-0/devfreq/gpu-nvd-0/nvhost_podgov/load_max"
-
-        # Check if monitoring is available
+        # Try jtop first (best support for Thor - GPU, VRAM, temp, power)
         try:
-            with open(self.gpc_load_target, 'r') as f:
-                f.read()
+            from jtop import jtop
+            self.jtop_instance = jtop()
+            self.jtop_instance.start()
+            self.use_jtop = True
             self.available = True
-            logger.info(f"Jetson Thor monitoring initialized - using nvhost_podgov")
-        except (FileNotFoundError, PermissionError) as e:
-            logger.warning(f"Jetson Thor nvhost_podgov not accessible: {e}")
-            self.available = False
+            logger.info(f"Jetson Thor monitoring initialized - using jtop (jetson_stats)")
+        except ImportError:
+            logger.warning("jtop (jetson_stats) not installed - install with: sudo pip3 install jetson-stats")
+        except Exception as e:
+            logger.warning(f"jtop initialization failed: {e}")
+
+        # Fallback to nvhost_podgov if jtop not available
+        if not self.use_jtop:
+            # Thor-specific paths (JetPack 7 / L4T r38.2)
+            self.gpu_base_path = "/sys/devices/platform/bus@0/d0b0000000.pcie/pci0000:00/0000:00:00.0/0000:01:00.0"
+            self.gpc_load_target = f"{self.gpu_base_path}/gpu-gpc-0/devfreq/gpu-gpc-0/nvhost_podgov/load_target"
+            self.gpc_load_max = f"{self.gpu_base_path}/gpu-gpc-0/devfreq/gpu-gpc-0/nvhost_podgov/load_max"
+            self.nvd_load_target = f"{self.gpu_base_path}/gpu-nvd-0/devfreq/gpu-nvd-0/nvhost_podgov/load_target"
+            self.nvd_load_max = f"{self.gpu_base_path}/gpu-nvd-0/devfreq/gpu-nvd-0/nvhost_podgov/load_max"
+
+            # Check if monitoring is available
+            try:
+                with open(self.gpc_load_target, 'r') as f:
+                    f.read()
+                self.available = True
+                logger.info(f"Jetson Thor monitoring initialized - using nvhost_podgov (limited stats)")
+                logger.info(f"💡 For full stats (GPU, VRAM, temp), install: sudo pip3 install jetson-stats")
+            except (FileNotFoundError, PermissionError) as e:
+                logger.warning(f"Jetson Thor nvhost_podgov not accessible: {e}")
+                self.available = False
 
     def get_stats(self) -> Dict:
         """Get current GPU stats for Jetson Thor"""
@@ -321,6 +339,57 @@ class JetsonThorMonitor(GPUMonitor):
                 **system_stats
             }
 
+        # Use jtop if available (full stats)
+        if self.use_jtop and self.jtop_instance:
+            try:
+                # Get stats from jtop
+                gpu_percent = self.jtop_instance.stats.get('GPU', 0)
+
+                # Get memory stats (jtop uses shared memory on Jetson)
+                memory = self.jtop_instance.memory
+                # Thor uses unified memory, RAM is shared with GPU
+                vram_used_gb = memory.get('RAM', {}).get('used', 0) / 1024  # Convert MB to GB
+                vram_total_gb = memory.get('RAM', {}).get('tot', 0) / 1024
+                vram_percent = (vram_used_gb / vram_total_gb * 100) if vram_total_gb > 0 else 0
+
+                # Temperature
+                temp_c = None
+                if hasattr(self.jtop_instance, 'temperature'):
+                    temps = self.jtop_instance.temperature
+                    # Try to get GPU temp
+                    temp_c = temps.get('GPU', temps.get('thermal', None))
+
+                # Power
+                power_w = None
+                if hasattr(self.jtop_instance, 'power'):
+                    power = self.jtop_instance.power
+                    # Sum all power rails if available
+                    if isinstance(power, dict):
+                        power_w = sum(p.get('power', 0) for p in power.values() if isinstance(p, dict)) / 1000  # mW to W
+
+                stats = {
+                    "platform": "Jetson Thor (jtop)",
+                    "gpu_name": self.gpu_name,
+                    "gpu_percent": gpu_percent,
+                    "vram_used_gb": vram_used_gb,
+                    "vram_total_gb": vram_total_gb,
+                    "vram_percent": vram_percent,
+                    "temp_c": temp_c,
+                    "power_w": power_w,
+                    **system_stats
+                }
+
+                # Update history
+                self.update_history(stats)
+
+                return stats
+
+            except Exception as e:
+                logger.error(f"Error reading jtop stats: {e}")
+                logger.warning("Falling back to nvhost_podgov")
+                self.use_jtop = False  # Disable jtop, try fallback
+
+        # Fallback to nvhost_podgov (GPU util only, no VRAM)
         try:
             # Read GPC (Graphics Processing Cluster) load
             with open(self.gpc_load_target, 'r') as f:
@@ -351,7 +420,7 @@ class JetsonThorMonitor(GPUMonitor):
                 "vram_used_gb": 0,  # Not available via this method
                 "vram_total_gb": 0,
                 "vram_percent": 0,
-                "temp_c": None,  # Could parse from tegrastats if needed
+                "temp_c": None,
                 "power_w": None,
                 **system_stats
             }
@@ -376,7 +445,12 @@ class JetsonThorMonitor(GPUMonitor):
 
     def cleanup(self):
         """Cleanup resources"""
-        pass
+        if self.use_jtop and self.jtop_instance:
+            try:
+                self.jtop_instance.close()
+                logger.info("jtop closed successfully")
+            except Exception as e:
+                logger.error(f"Error closing jtop: {e}")
 
 
 class JetsonOrinMonitor(GPUMonitor):
@@ -422,7 +496,7 @@ def create_monitor(platform: Optional[str] = None) -> GPUMonitor:
         return JetsonThorMonitor()
     if platform == "jetson_orin":
         return JetsonOrinMonitor()
-    
+
     # Auto-detect Jetson Thor by checking for Thor-specific paths
     if platform is None:
         thor_gpc_path = "/sys/devices/platform/bus@0/d0b0000000.pcie/pci0000:00/0000:00:00.0/0000:01:00.0/gpu-gpc-0/devfreq/gpu-gpc-0/nvhost_podgov/load_target"
@@ -432,7 +506,7 @@ def create_monitor(platform: Optional[str] = None) -> GPUMonitor:
                 return JetsonThorMonitor()
         except:
             pass
-    
+
     # Try NVML (works for Desktop, DGX, some Jetsons)
     if platform == "nvidia" or platform is None:
         try:
@@ -444,12 +518,12 @@ def create_monitor(platform: Optional[str] = None) -> GPUMonitor:
             if isinstance(gpu_name, bytes):
                 gpu_name = gpu_name.decode('utf-8')
             pynvml.nvmlShutdown()
-            
+
             # If Thor detected, use JetsonThorMonitor for better stats
             if "Thor" in gpu_name:
                 logger.info(f"Detected {gpu_name} - using JetsonThorMonitor for better stats")
                 return JetsonThorMonitor()
-            
+
             logger.info("Auto-detected NVIDIA GPU (NVML available)")
             return NVMLMonitor()
         except:
