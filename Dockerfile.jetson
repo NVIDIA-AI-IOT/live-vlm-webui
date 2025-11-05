@@ -34,9 +34,12 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install Python dependencies
-# Note: jetson-stats (jtop) may not work properly in Docker
-# The app will fall back to sysfs monitoring (/sys/devices/platform/...)
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Install jetson-stats for GPU monitoring
+# Note: jetson-stats requires access to system hardware interfaces
+# and may need additional permissions to work fully in Docker
+RUN pip install --no-cache-dir jetson-stats
 
 # Copy application files
 COPY server.py .
