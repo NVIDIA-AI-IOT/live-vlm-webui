@@ -16,6 +16,41 @@ Stream your webcam to any VLM and get live AI-powered analysis - perfect for tes
 
 ![](./docs/images/chrome_app_running.png)
 
+---
+
+## 🚀 Quick Start (The Easy Way)
+
+**Use Docker - same method for PC, Jetson Orin, and Jetson Thor!**
+
+```bash
+# Clone the repo
+git clone https://github.com/nvidia-ai-iot/live-vlm-webui.git
+cd live-vlm-webui
+
+# Run the auto-detection script
+./start_container.sh
+```
+
+That's it! The script will:
+- ✅ Auto-detect your platform (PC x86_64, Jetson Orin, or Jetson Thor)
+- ✅ Pull the appropriate pre-built image from GitHub Container Registry
+- ✅ Configure GPU access automatically
+- ✅ Start the container with correct settings
+
+Access the web UI at: **https://localhost:8090**
+
+> 💡 **Note:** You'll need a VLM backend running (Ollama, vLLM, etc.). See [VLM Backend Setup](#option-a-ollama-easiest) below.
+
+### Available Pre-built Images
+
+| Platform | Image Tag | Pull Command |
+|----------|-----------|--------------|
+| **PC (x86_64)** | `latest-x86` | `docker pull ghcr.io/nvidia-ai-iot/live-vlm-webui:latest-x86` |
+| **Jetson Orin** | `latest-jetson-orin` | `docker pull ghcr.io/nvidia-ai-iot/live-vlm-webui:latest-jetson-orin` |
+| **Jetson Thor** | `latest-jetson-thor` | `docker pull ghcr.io/nvidia-ai-iot/live-vlm-webui:latest-jetson-thor` |
+
+---
+
 ## Features
 
 ### Core Functionality
@@ -78,36 +113,11 @@ The VLM processes frames asynchronously in the background. The video stream cont
   - Any OpenAI-compatible API
 - Webcam (V4L2 compliant video source)
 
-## 🐋 Quick Start with Docker (Recommended)
-
-The easiest way to run Live-VLM-WebUI is using our pre-built Docker containers from GitHub Container Registry.
-
-### Auto-Detect Platform and Run
-
-```bash
-# Clone and run
-git clone https://github.com/nvidia-ai-iot/live-vlm-webui.git
-cd live-vlm-webui
-./start_container.sh
-```
-
-The script will:
-- ✅ Auto-detect your platform (PC x86_64, Jetson Orin, or Jetson Thor)
-- ✅ Pull the appropriate image from ghcr.io
-- ✅ Configure GPU access automatically
-- ✅ Start the container with correct settings
-
-### Available Pre-built Images
-
-| Platform | Image Tag | Pull Command |
-|----------|-----------|--------------|
-| **PC (x86_64)** | `latest-x86` | `docker pull ghcr.io/nvidia-ai-iot/live-vlm-webui:latest-x86` |
-| **Jetson Orin** | `latest-jetson-orin` | `docker pull ghcr.io/nvidia-ai-iot/live-vlm-webui:latest-jetson-orin` |
-| **Jetson Thor** | `latest-jetson-thor` | `docker pull ghcr.io/nvidia-ai-iot/live-vlm-webui:latest-jetson-thor` |
+## 🐋 Docker Deployment (Advanced)
 
 ### Manual Docker Run
 
-If you prefer manual control:
+If you prefer manual control over the Docker container:
 
 **PC (x86_64):**
 ```bash
@@ -144,15 +154,17 @@ Then access the web UI at `https://localhost:8090`
 
 ---
 
-## Installation
+## Manual Installation (Alternative to Docker)
 
-1. **Clone the repository**:
+For those who prefer native Python installation or need to customize the setup:
+
+### 1. Clone the repository
 ```bash
 git clone https://github.com/nvidia-ai-iot/live-vlm-webui.git
 cd live-vlm-webui
 ```
 
-2. **Create a virtual environment**:
+### 2. Create a virtual environment
 
 **Option A: venv (recommended for Jetson/lightweight systems):**
 ```bash
@@ -166,21 +178,21 @@ conda create -n live-vlm-webui python=3.10 -y
 conda activate live-vlm-webui
 ```
 
-3. **Install Python dependencies**:
+### 3. Install Python dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-4. **Generate SSL certificates** (required for webcam access):
+### 4. Generate SSL certificates (required for webcam access)
 ```bash
 ./generate_cert.sh
 ```
 
 This will create `cert.pem` and `key.pem` in the project directory. These are self-signed certificates for local development.
 
-**Note:** Modern browsers require HTTPS to access webcam/microphone. The self-signed certificate will trigger a security warning - you'll need to click "Advanced" → "Proceed" to accept it.
+> **Note:** Modern browsers require HTTPS to access webcam/microphone. The self-signed certificate will trigger a security warning - you'll need to click "Advanced" → "Proceed" to accept it.
 
-### Platform-Specific Notes
+### 5. Platform-Specific Notes
 
 **Jetson (ARM64):**
 - Use `venv` instead of conda (lighter footprint)
@@ -201,7 +213,7 @@ source .venv/bin/activate
 - Keeps directory clean (hidden by default)
 - Already in `.gitignore`
 
-5. **Set up your VLM backend** (choose one):
+### 6. Set up your VLM backend (choose one)
 
 ### Option A: Ollama (Easiest)
 ```bash
