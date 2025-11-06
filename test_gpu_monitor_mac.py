@@ -32,9 +32,11 @@ async def test_monitor():
     print("System Information:")
     print("=" * 60)
     print(f"Platform:      {stats.get('platform', 'N/A')}")
-    print(f"GPU Name:      {stats.get('gpu_name', 'N/A')}")
-    print(f"Hostname:      {stats.get('hostname', 'N/A')}")
+    print(f"Product Name:  {stats.get('product_name', 'N/A')}")
     print(f"CPU Model:     {stats.get('cpu_model', 'N/A')}")
+    print(f"GPU Name:      {stats.get('gpu_name', 'N/A')}")
+    print(f"GPU Cores:     {stats.get('gpu_cores', 0)}")
+    print(f"Hostname:      {stats.get('hostname', 'N/A')}")
 
     print("\n" + "=" * 60)
     print("CPU & RAM Stats:")

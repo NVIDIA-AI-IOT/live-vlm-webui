@@ -507,11 +507,13 @@ class AppleSiliconMonitor(GPUMonitor):
         self.available = False
         self.gpu_name = "Apple GPU"
         self.chip_type = "Unknown"
+        self.chip_variant = ""  # Pro, Max, Ultra, or empty for base
         self.gpu_cores = 0
+        self.product_name = ""
         self.use_powermetrics = False
         self.powermetrics_warned = False
-
-        # Detect chip type and GPU core count
+        
+        # Detect chip type and variant
         try:
             result = subprocess.run(
                 ["sysctl", "-n", "machdep.cpu.brand_string"],
@@ -526,20 +528,69 @@ class AppleSiliconMonitor(GPUMonitor):
                     for chip in ["M4", "M3", "M2", "M1"]:  # Check in reverse order for correct match
                         if chip in cpu_brand:
                             self.chip_type = chip
-                            self.gpu_name = f"Apple {chip} GPU"
-
-                            # Estimate GPU cores based on chip variant
-                            if "Max" in cpu_brand or "Ultra" in cpu_brand:
-                                self.gpu_cores = 32 if chip == "M1" else 38  # Rough estimate
+                            
+                            # Extract variant (Pro, Max, Ultra)
+                            if "Ultra" in cpu_brand:
+                                self.chip_variant = "Ultra"
+                            elif "Max" in cpu_brand:
+                                self.chip_variant = "Max"
                             elif "Pro" in cpu_brand:
-                                self.gpu_cores = 16 if chip == "M1" else 19
+                                self.chip_variant = "Pro"
+                            
+                            # Build GPU name with variant
+                            if self.chip_variant:
+                                self.gpu_name = f"{chip} {self.chip_variant}"
                             else:
-                                self.gpu_cores = 8  # Base models
+                                self.gpu_name = chip
+                            
                             break
-                logger.info(f"Apple Silicon detected: {cpu_brand} ({self.gpu_cores}-core GPU estimated)")
+                logger.info(f"Apple Silicon detected: {cpu_brand}")
                 self.available = True
         except Exception as e:
             logger.warning(f"Failed to detect Apple Silicon: {e}")
+        
+        # Get product name (MacBook Pro 16", etc.)
+        try:
+            result = subprocess.run(
+                ["system_profiler", "SPHardwareDataType"],
+                capture_output=True,
+                text=True,
+                timeout=3
+            )
+            if result.returncode == 0:
+                for line in result.stdout.split('\n'):
+                    if 'Model Name:' in line:
+                        # Extract "MacBook Pro" etc.
+                        self.product_name = line.split(':')[1].strip()
+                    elif 'Model Identifier:' in line and not self.product_name:
+                        # Fallback to model identifier
+                        model_id = line.split(':')[1].strip()
+                        # Try to make it readable (e.g., "Mac16,10" -> "Mac")
+                        if ',' in model_id:
+                            self.product_name = model_id.split(',')[0]
+        except Exception as e:
+            logger.debug(f"Could not get product name: {e}")
+        
+        # Get actual GPU core count from system_profiler
+        try:
+            result = subprocess.run(
+                ["system_profiler", "SPDisplaysDataType"],
+                capture_output=True,
+                text=True,
+                timeout=3
+            )
+            if result.returncode == 0:
+                for line in result.stdout.split('\n'):
+                    # Look for "Total Number of Cores:" in GPU section
+                    if 'Total Number of Cores:' in line or 'Cores:' in line:
+                        try:
+                            cores_str = line.split(':')[1].strip()
+                            self.gpu_cores = int(cores_str)
+                            break
+                        except:
+                            pass
+        except Exception as e:
+            logger.debug(f"Could not get GPU core count: {e}")
 
         # Check if powermetrics is available (requires sudo, so likely not usable)
         try:
@@ -556,6 +607,9 @@ class AppleSiliconMonitor(GPUMonitor):
 
         if self.available:
             logger.info(f"Apple Silicon monitoring initialized")
+            if self.product_name:
+                logger.info(f"Product: {self.product_name}")
+            logger.info(f"Chip: {self.gpu_name} ({self.gpu_cores}-core GPU)" if self.gpu_cores > 0 else f"Chip: {self.gpu_name}")
             logger.info(f"💡 Ollama uses Metal (GPU) for inference, not Neural Engine")
             logger.info(f"💡 For detailed monitoring: brew install asitop && sudo asitop")
             logger.info(f"💡 Or use Activity Monitor > Window > GPU History")
@@ -613,6 +667,8 @@ class AppleSiliconMonitor(GPUMonitor):
             "platform": f"Apple Silicon ({self.chip_type})",
             "gpu_name": self.gpu_name,
             "gpu_cores": self.gpu_cores,
+            "product_name": self.product_name,
+            "chip_variant": self.chip_variant,
             "gpu_percent": gpu_percent,  # Will be 0 without sudo powermetrics
             "vram_used_gb": system_stats["ram_used_gb"],  # Unified memory
             "vram_total_gb": system_stats["ram_total_gb"],  # Unified memory

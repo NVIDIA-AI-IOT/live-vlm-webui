@@ -1940,14 +1940,21 @@
                 boardName = null;  // Ignore it and fall back to regular display
             }
 
-            // Format header based on whether we have a board name (Jetson) or not (PC)
+            // Format header based on platform
             const systemInfoElem = document.getElementById('systemInfoHeader');
+            const productName = stats.product_name;
+            const gpuCores = stats.gpu_cores || 0;
+            
             if (boardName && typeof boardName === 'string') {
                 // Jetson: Show board name prominently with GPU suffix
                 const gpuDisplayName = gpuName.includes('GPU') ? gpuName : `${gpuName} GPU`;
                 systemInfoElem.innerHTML = `<b>${boardName}</b> (${hostname}) with ${gpuDisplayName}`;
+            } else if (productName && productName.includes('Mac')) {
+                // Mac: Show "MacBook Pro 16" M4 Max (`hostname`) with M4 Max 40-core GPU"
+                const gpuText = gpuCores > 0 ? `${gpuName} ${gpuCores}-core GPU` : `${gpuName} GPU`;
+                systemInfoElem.innerHTML = `${productName} ${cpuModel} (<code>${hostname}</code>) with ${gpuText}`;
             } else {
-                // PC: Show hostname with CPU and GPU
+                // PC: Show hostname (CPU) with GPU
                 const gpuDisplayName = gpuName.includes('GPU') ? gpuName : `${gpuName} GPU`;
                 systemInfoElem.textContent = `${hostname} (${cpuModel}) with ${gpuDisplayName}`;
             }
