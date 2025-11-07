@@ -546,128 +546,163 @@ class AppleSiliconMonitor(GPUMonitor):
         self.use_powermetrics = False
         self.powermetrics_warned = False
 
-        # Detect chip type and variant
-        try:
-            result = subprocess.run(
-                ["sysctl", "-n", "machdep.cpu.brand_string"],
-                capture_output=True,
-                text=True,
-                timeout=1
-            )
-            if result.returncode == 0:
-                cpu_brand = result.stdout.strip()
-                # Extract chip type (M1, M2, M3, M4, etc.)
-                if "Apple" in cpu_brand:
-                    for chip in ["M4", "M3", "M2", "M1"]:  # Check in reverse order for correct match
-                        if chip in cpu_brand:
-                            self.chip_type = chip
+        # Check if running in Docker on Mac (host system info passed as env vars)
+        if os.environ.get("DOCKER_ENV") == "mac" and os.environ.get("HOST_CPU_MODEL"):
+            cpu_brand = os.environ.get("HOST_CPU_MODEL", "")
+            self.product_name = os.environ.get("HOST_PRODUCT_NAME", "Mac")
+            # Override hostname to show host's hostname
+            import socket
+            self._hostname = os.environ.get("HOST_HOSTNAME", socket.gethostname())
+            
+            # Extract chip type from host CPU model
+            if "Apple" in cpu_brand:
+                for chip in ["M4", "M3", "M2", "M1"]:
+                    if chip in cpu_brand:
+                        self.chip_type = chip
+                        if "Ultra" in cpu_brand:
+                            self.chip_variant = "Ultra"
+                        elif "Max" in cpu_brand:
+                            self.chip_variant = "Max"
+                        elif "Pro" in cpu_brand:
+                            self.chip_variant = "Pro"
+                        
+                        if self.chip_variant:
+                            self.gpu_name = f"{chip} {self.chip_variant}"
+                        else:
+                            self.gpu_name = chip
+                        break
+            
+            logger.info(f"Apple Silicon detected (via Docker host): {cpu_brand}")
+            logger.info(f"Host product: {self.product_name}")
+            logger.info(f"Host hostname: {self._hostname}")
+            self.available = True
+            
+            # Try to get GPU cores from host (if passed)
+            # For now, skip detailed detection in Docker, will add if needed
+        else:
+            # Native macOS detection
+            # Detect chip type and variant
+            try:
+                result = subprocess.run(
+                    ["sysctl", "-n", "machdep.cpu.brand_string"],
+                    capture_output=True,
+                    text=True,
+                    timeout=1
+                )
+                if result.returncode == 0:
+                    cpu_brand = result.stdout.strip()
+                    # Extract chip type (M1, M2, M3, M4, etc.)
+                    if "Apple" in cpu_brand:
+                        for chip in ["M4", "M3", "M2", "M1"]:  # Check in reverse order for correct match
+                            if chip in cpu_brand:
+                                self.chip_type = chip
 
-                            # Extract variant (Pro, Max, Ultra)
-                            if "Ultra" in cpu_brand:
-                                self.chip_variant = "Ultra"
-                            elif "Max" in cpu_brand:
-                                self.chip_variant = "Max"
-                            elif "Pro" in cpu_brand:
-                                self.chip_variant = "Pro"
+                                # Extract variant (Pro, Max, Ultra)
+                                if "Ultra" in cpu_brand:
+                                    self.chip_variant = "Ultra"
+                                elif "Max" in cpu_brand:
+                                    self.chip_variant = "Max"
+                                elif "Pro" in cpu_brand:
+                                    self.chip_variant = "Pro"
 
-                            # Build GPU name with variant
-                            if self.chip_variant:
-                                self.gpu_name = f"{chip} {self.chip_variant}"
-                            else:
-                                self.gpu_name = chip
+                                # Build GPU name with variant
+                                if self.chip_variant:
+                                    self.gpu_name = f"{chip} {self.chip_variant}"
+                                else:
+                                    self.gpu_name = chip
 
-                            break
-                logger.info(f"Apple Silicon detected: {cpu_brand}")
-                self.available = True
-        except Exception as e:
-            logger.warning(f"Failed to detect Apple Silicon: {e}")
+                                break
+                    logger.info(f"Apple Silicon detected: {cpu_brand}")
+                    self.available = True
+            except Exception as e:
+                logger.warning(f"Failed to detect Apple Silicon: {e}")
 
-        # Get product name (MacBook Pro 16", etc.)
-        model_id = ""
-        try:
-            result = subprocess.run(
-                ["system_profiler", "SPHardwareDataType"],
-                capture_output=True,
-                text=True,
-                timeout=3
-            )
-            if result.returncode == 0:
-                for line in result.stdout.split('\n'):
-                    if 'Model Name:' in line:
-                        # Extract "MacBook Pro" etc.
-                        self.product_name = line.split(':')[1].strip()
-                    elif 'Model Identifier:' in line:
-                        model_id = line.split(':')[1].strip()
+            # Get product name (MacBook Pro 16", etc.)
+            model_id = ""
+            try:
+                result = subprocess.run(
+                    ["system_profiler", "SPHardwareDataType"],
+                    capture_output=True,
+                    text=True,
+                    timeout=3
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.split('\n'):
+                        if 'Model Name:' in line:
+                            # Extract "MacBook Pro" etc.
+                            self.product_name = line.split(':')[1].strip()
+                        elif 'Model Identifier:' in line:
+                            model_id = line.split(':')[1].strip()
 
-                # Try to get screen size from display info
-                if self.product_name and 'MacBook' in self.product_name:
-                    try:
-                        display_result = subprocess.run(
-                            ["system_profiler", "SPDisplaysDataType"],
-                            capture_output=True,
-                            text=True,
-                            timeout=3
-                        )
-                        if display_result.returncode == 0:
-                            # Look for built-in display resolution to infer size
-                            lines = display_result.stdout.split('\n')
-                            for i, line in enumerate(lines):
-                                if 'Built-In' in line or 'Color LCD' in line:
-                                    # Check next few lines for resolution
-                                    for j in range(i, min(i+10, len(lines))):
-                                        if 'Resolution:' in lines[j]:
-                                            res = lines[j].lower()
-                                            # Infer screen size from resolution
-                                            if '3456' in res or '3024' in res:  # 14" and 16" MacBook Pro
-                                                # Check if it's 16" (3456x2234) or 14" (3024x1964)
-                                                if '3456' in res:
-                                                    self.product_name += ' 16"'
-                                                elif '3024' in res:
-                                                    self.product_name += ' 14"'
-                                            elif '2880' in res and '1800' in res:  # 15" MacBook Air
-                                                self.product_name += ' 15"'
-                                            elif '2560' in res and '1664' in res:  # 13" MacBook Air/Pro
-                                                self.product_name += ' 13"'
-                                            break
-                                    break
-                    except Exception as e:
-                        logger.debug(f"Could not determine screen size: {e}")
-        except Exception as e:
-            logger.debug(f"Could not get product name: {e}")
-
-        # Get actual GPU core count from system_profiler
-        try:
-            result = subprocess.run(
-                ["system_profiler", "SPDisplaysDataType"],
-                capture_output=True,
-                text=True,
-                timeout=3
-            )
-            if result.returncode == 0:
-                for line in result.stdout.split('\n'):
-                    # Look for "Total Number of Cores:" in GPU section
-                    if 'Total Number of Cores:' in line or 'Cores:' in line:
+                    # Try to get screen size from display info
+                    if self.product_name and 'MacBook' in self.product_name:
                         try:
-                            cores_str = line.split(':')[1].strip()
-                            self.gpu_cores = int(cores_str)
-                            break
-                        except:
-                            pass
-        except Exception as e:
-            logger.debug(f"Could not get GPU core count: {e}")
+                            display_result = subprocess.run(
+                                ["system_profiler", "SPDisplaysDataType"],
+                                capture_output=True,
+                                text=True,
+                                timeout=3
+                            )
+                            if display_result.returncode == 0:
+                                # Look for built-in display resolution to infer size
+                                lines = display_result.stdout.split('\n')
+                                for i, line in enumerate(lines):
+                                    if 'Built-In' in line or 'Color LCD' in line:
+                                        # Check next few lines for resolution
+                                        for j in range(i, min(i+10, len(lines))):
+                                            if 'Resolution:' in lines[j]:
+                                                res = lines[j].lower()
+                                                # Infer screen size from resolution
+                                                if '3456' in res or '3024' in res:  # 14" and 16" MacBook Pro
+                                                    # Check if it's 16" (3456x2234) or 14" (3024x1964)
+                                                    if '3456' in res:
+                                                        self.product_name += ' 16"'
+                                                    elif '3024' in res:
+                                                        self.product_name += ' 14"'
+                                                elif '2880' in res and '1800' in res:  # 15" MacBook Air
+                                                    self.product_name += ' 15"'
+                                                elif '2560' in res and '1664' in res:  # 13" MacBook Air/Pro
+                                                    self.product_name += ' 13"'
+                                                break
+                                        break
+                        except Exception as e:
+                            logger.debug(f"Could not determine screen size: {e}")
+            except Exception as e:
+                logger.debug(f"Could not get product name: {e}")
 
-        # Check if powermetrics is available (requires sudo, so likely not usable)
-        try:
-            result = subprocess.run(
-                ["which", "powermetrics"],
-                capture_output=True,
-                timeout=1
-            )
-            if result.returncode == 0:
-                self.use_powermetrics = True
-                logger.info("powermetrics found - but requires sudo for GPU stats")
-        except:
-            pass
+            # Get actual GPU core count from system_profiler
+            try:
+                result = subprocess.run(
+                    ["system_profiler", "SPDisplaysDataType"],
+                    capture_output=True,
+                    text=True,
+                    timeout=3
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.split('\n'):
+                        # Look for "Total Number of Cores:" in GPU section
+                        if 'Total Number of Cores:' in line or 'Cores:' in line:
+                            try:
+                                cores_str = line.split(':')[1].strip()
+                                self.gpu_cores = int(cores_str)
+                                break
+                            except:
+                                pass
+            except Exception as e:
+                logger.debug(f"Could not get GPU core count: {e}")
+
+            # Check if powermetrics is available (requires sudo, so likely not usable)
+            try:
+                result = subprocess.run(
+                    ["which", "powermetrics"],
+                    capture_output=True,
+                    timeout=1
+                )
+                if result.returncode == 0:
+                    self.use_powermetrics = True
+                    logger.info("powermetrics found - but requires sudo for GPU stats")
+            except:
+                pass
 
         if self.available:
             logger.info(f"Apple Silicon monitoring initialized")
@@ -677,6 +712,14 @@ class AppleSiliconMonitor(GPUMonitor):
             logger.info(f"💡 Ollama uses Metal (GPU) for inference, not Neural Engine")
             logger.info(f"💡 For detailed monitoring: brew install asitop && sudo asitop")
             logger.info(f"💡 Or use Activity Monitor > Window > GPU History")
+
+    def get_cpu_ram_stats(self) -> Dict:
+        """Get CPU and RAM stats, with custom hostname for Docker"""
+        stats = super().get_cpu_ram_stats()
+        # Override hostname if running in Docker on Mac
+        if hasattr(self, '_hostname'):
+            stats['hostname'] = self._hostname
+        return stats
 
     def get_stats(self) -> Dict:
         """Get current system stats for Apple Silicon"""

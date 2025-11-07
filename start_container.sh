@@ -197,11 +197,20 @@ if [ "$PLATFORM" = "mac" ]; then
     # - Use port mapping (not host network)
     # - Connect to Ollama on host via host.docker.internal
     # - No GPU flags needed
+    
+    # Detect Mac system info to pass to container
+    MAC_HOSTNAME=$(hostname -s)
+    MAC_CHIP=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "Apple Silicon")
+    MAC_PRODUCT_NAME=$(system_profiler SPHardwareDataType 2>/dev/null | grep "Model Name" | awk -F': ' '{print $2}' || echo "Mac")
+    
     DOCKER_CMD="docker run -d \
       --name ${CONTAINER_NAME} \
       -p 8090:8090 \
       -e VLM_API_BASE=http://host.docker.internal:11434/v1 \
       -e VLM_MODEL=llama3.2-vision:11b \
+      -e HOST_HOSTNAME=${MAC_HOSTNAME} \
+      -e HOST_PRODUCT_NAME=${MAC_PRODUCT_NAME} \
+      -e HOST_CPU_MODEL=${MAC_CHIP} \
       ${IMAGE_NAME}"
 else
     # Linux (PC, Jetson) configuration
