@@ -465,6 +465,7 @@ live-vlm-webui/
 │   ├── start_server.sh      # Quick start script with SSL
 │   ├── stop_server.sh       # Stop the server
 │   ├── start_container.sh   # Auto-detection Docker launcher
+│   ├── stop_container.sh    # Stop Docker container
 │   ├── start_docker_compose.sh # Docker Compose launcher
 │   ├── generate_cert.sh     # SSL certificate generation
 │   ├── build_multiarch.sh   # Multi-arch Docker build

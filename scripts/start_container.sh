@@ -207,13 +207,17 @@ if ! docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "^${IMAGE_NAME}
         echo -e "${RED}❌ Image '${IMAGE_NAME}' not found${NC}"
         echo -e "${YELLOW}   Build it first with:${NC}"
         if [ "$PLATFORM" = "mac" ]; then
-            echo -e "   ${GREEN}docker build -f Dockerfile.mac -t live-vlm-webui:latest-mac .${NC}"
+            echo -e "   ${GREEN}docker build -f docker/Dockerfile.mac -t live-vlm-webui:latest-mac .${NC}"
             echo -e "   ${YELLOW}Or pull from registry:${NC}"
             echo -e "   ${GREEN}docker pull ${IMAGE_NAME}${NC}"
         elif [ "$PLATFORM" = "arm64-sbsa" ]; then
-            echo -e "   ${GREEN}docker build -t live-vlm-webui:dgx-spark .${NC}"
+            echo -e "   ${GREEN}docker build -f docker/Dockerfile -t live-vlm-webui:dgx-spark .${NC}"
+        elif [ "$PLATFORM" = "jetson-thor" ]; then
+            echo -e "   ${GREEN}docker build -f docker/Dockerfile.jetson-thor -t live-vlm-webui:latest-jetson-thor .${NC}"
+        elif [ "$PLATFORM" = "jetson-orin" ]; then
+            echo -e "   ${GREEN}docker build -f docker/Dockerfile.jetson-orin -t live-vlm-webui:latest-jetson-orin .${NC}"
         else
-            echo -e "   ${GREEN}docker build -t live-vlm-webui:x86 .${NC}"
+            echo -e "   ${GREEN}docker build -f docker/Dockerfile -t live-vlm-webui:x86 .${NC}"
         fi
         exit 1
     fi
@@ -252,7 +256,10 @@ if [ "$PLATFORM" = "mac" ]; then
     echo -e "${YELLOW}   The container will start and connect to Ollama, but camera will fail.${NC}"
     echo ""
     echo -e "${GREEN}💡 For camera support on Mac, run natively instead:${NC}"
-    echo -e "${GREEN}   python3 server.py --host 0.0.0.0 --port 8090 --ssl-cert cert.pem --ssl-key key.pem \\${NC}"
+    echo -e "${GREEN}   ./scripts/start_server.sh${NC}"
+    echo -e "${GREEN}   # Or manually:${NC}"
+    echo -e "${GREEN}   python3 -m live_vlm_webui.server --host 0.0.0.0 --port 8090 \\${NC}"
+    echo -e "${GREEN}     --ssl-cert cert.pem --ssl-key key.pem \\${NC}"
     echo -e "${GREEN}     --api-base http://localhost:11434/v1 --model llama3.2-vision:11b${NC}"
     echo ""
     read -p "Continue with Docker anyway? (y/N): " -n 1 -r

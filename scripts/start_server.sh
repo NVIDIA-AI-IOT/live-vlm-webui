@@ -6,23 +6,26 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
 # Detect and activate virtual environment if needed
+DETECTED_VENV=""
 if [ -z "$VIRTUAL_ENV" ] && [ -z "$CONDA_DEFAULT_ENV" ]; then
     # Check for .venv (preferred)
     if [ -d ".venv" ]; then
         echo "Activating .venv virtual environment..."
         source .venv/bin/activate
+        DETECTED_VENV=".venv"
         echo ""
     # Check for venv (alternative)
     elif [ -d "venv" ]; then
         echo "Activating venv virtual environment..."
         source venv/bin/activate
+        DETECTED_VENV="venv"
         echo ""
     else
         echo "⚠️  No virtual environment detected!"
         echo "Please create one first:"
         echo "  python3 -m venv .venv"
         echo "  source .venv/bin/activate"
-        echo "  pip install -r requirements.txt"
+        echo "  pip install -e ."
         echo ""
         echo "Or activate your conda environment:"
         echo "  conda activate live-vlm-webui"
@@ -49,10 +52,19 @@ if ! python -c "import live_vlm_webui" 2>/dev/null; then
     echo "📋 To fix this, run ONE of the following:"
     echo ""
 
-    # Check if in project directory with venv
-    if [ -d ".venv" ]; then
+    # Show the venv that was actually detected/activated
+    if [ -n "$DETECTED_VENV" ]; then
+        echo "Option 1: Install in the detected virtual environment"
+        echo "  source $DETECTED_VENV/bin/activate"
+        echo "  pip install --upgrade pip setuptools wheel"
+        echo "  pip install -e ."
+        echo ""
+    elif [ -d ".venv" ] || [ -d "venv" ]; then
+        # Fallback if we're already in a venv but didn't detect it
+        VENV_DIR=$([ -d ".venv" ] && echo ".venv" || echo "venv")
         echo "Option 1: Use the project's virtual environment"
-        echo "  source .venv/bin/activate"
+        echo "  source $VENV_DIR/bin/activate"
+        echo "  pip install --upgrade pip setuptools wheel"
         echo "  pip install -e ."
         echo ""
     fi
@@ -67,11 +79,13 @@ if ! python -c "import live_vlm_webui" 2>/dev/null; then
 
     # Generic pip install
     echo "Option 3: Install in current environment"
+    echo "  pip install --upgrade pip setuptools wheel"
     echo "  pip install -e ."
     echo ""
 
-    echo "💡 Tip: 'pip install -e .' installs the package in editable mode"
-    echo "   (changes to source files take effect immediately)"
+    echo "💡 Tips:"
+    echo "   - Upgrade pip first if you get 'setup.py not found' errors"
+    echo "   - 'pip install -e .' installs in editable mode (changes take effect immediately)"
     echo ""
     exit 1
 fi

@@ -2,6 +2,59 @@
 
 Common issues and solutions for Live VLM WebUI.
 
+## Installation Issues
+
+### "setup.py" or "setup.cfg" not found error
+
+**Issue:** Running `pip install -e .` fails with:
+```
+ERROR: File "setup.py" or "setup.cfg" not found.
+```
+
+**Solution:** Your pip version is too old to support editable installs with `pyproject.toml` only.
+
+Upgrade pip and build tools first:
+```bash
+pip install --upgrade pip setuptools wheel
+pip install -e .
+```
+
+**Common on:**
+- macOS with default Python/pip
+- Ubuntu/Debian with older Python versions
+- Fresh virtual environments with outdated pip
+
+### Package not found after installation
+
+**Issue:** After installing with `pip install -e .`, running the server shows:
+```
+ModuleNotFoundError: No module named 'live_vlm_webui'
+```
+
+**Solutions:**
+1. Make sure you're in the correct virtual environment:
+   ```bash
+   source .venv/bin/activate  # or conda activate your-env
+   ```
+
+2. Reinstall the package:
+   ```bash
+   pip install -e .
+   ```
+
+3. Verify installation:
+   ```bash
+   python -c "import live_vlm_webui; print(live_vlm_webui.__version__)"
+   ```
+
+### Wrong Python environment
+
+**Issue:** The `start_server.sh` script says package not found, even though you installed it.
+
+**Solution:** You might be in a different environment than where you installed. The script will show you which environment it detected and give you specific instructions to fix it.
+
+---
+
 ## Camera Issues
 
 ### Camera not accessible
