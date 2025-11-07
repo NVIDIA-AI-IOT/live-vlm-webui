@@ -5,6 +5,34 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
+# Detect Jetson and recommend Docker
+if [ -f /etc/nv_tegra_release ]; then
+    echo "⚠️  Jetson platform detected!"
+    echo ""
+    echo "📦 We STRONGLY recommend using Docker for Jetson:"
+    echo "   ./scripts/start_container.sh"
+    echo ""
+    echo "Why Docker?"
+    echo "  ✅ No system package dependencies"
+    echo "  ✅ Works out-of-the-box"
+    echo "  ✅ Production-ready"
+    echo "  ✅ Isolated from JetPack"
+    echo ""
+    echo "Local Python on Jetson requires:"
+    echo "  • sudo apt install python3-venv (or python3.10-venv)"
+    echo "  • pip upgrade to support modern packaging"
+    echo "  • May conflict with JetPack packages"
+    echo ""
+    read -p "Continue with local Python anyway? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "👍 Good choice! Run: ./scripts/start_container.sh"
+        exit 0
+    fi
+    echo "⚠️  Proceeding with local Python setup..."
+    echo ""
+fi
+
 # Detect and activate virtual environment if needed
 DETECTED_VENV=""
 if [ -z "$VIRTUAL_ENV" ] && [ -z "$CONDA_DEFAULT_ENV" ]; then
