@@ -18,7 +18,7 @@ Stream your webcam to any VLM and get live AI-powered analysis - perfect for tes
 
 **📢 Share this project:**
 [![X (Twitter)](https://img.shields.io/badge/Share%20on-X-000000?logo=x&logoColor=white)](https://twitter.com/intent/tweet?text=Check%20out%20Live%20VLM%20WebUI%20-%20A%20universal%20web%20interface%20for%20real-time%20Vision%20Language%20Model%20interaction!&url=https://github.com/nvidia-ai-iot/live-vlm-webui&hashtags=AI,VisionAI,NVIDIA,OpenSource)
-[![LinkedIn](https://img.shields.io/badge/Share%20on-LinkedIn-0077B5?logo=linkedin&logoColor=white)](https://www.linkedin.com/sharing/share-offsite/?url=https://github.com/nvidia-ai-iot/live-vlm-webui)
+[![LinkedIn](https://img.shields.io/badge/Share%20on-LinkedIn-0077B5?logo=linkedin&logoColor=white)](https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fgithub.com%2Fnvidia-ai-iot%2Flive-vlm-webui)
 [![Reddit](https://img.shields.io/badge/Share%20on-Reddit-FF4500?logo=reddit&logoColor=white)](https://reddit.com/submit?url=https://github.com/nvidia-ai-iot/live-vlm-webui&title=Live%20VLM%20WebUI%20-%20Real-time%20Vision%20AI%20Interaction)
 
 ---
@@ -208,13 +208,13 @@ python -m vllm.entrypoints.openai.api_server \
 ### Option C: NVIDIA API Catalog (No GPU Required)
 
 1. Visit [NVIDIA API Catalog](https://build.nvidia.com/)
-2. Get API key from a vision model page
+2. Get API key on [build.nvidia.com](https://build.nvidia.com/settings/api-keys) page.
 3. Configure in WebUI:
-   - API Base: `https://ai.api.nvidia.com/v1/gr`
+   - API Base: `https://integrate.api.nvidia.com/v1`
    - API Key: `nvapi-YOUR_KEY`
    - Model: `meta/llama-3.2-90b-vision-instruct`
 
-**Best for:** Cloud-based inference, instant access
+**Best for:** Cloud-based inference, instant access, free API trial usage
 
 **📗 Detailed Guide:** [VLM Backend Setup](./docs/setup/vlm-backends.md)
 
@@ -297,7 +297,7 @@ Includes:
 - 🧑‍💻 [Contributing Guide](./CONTRIBUTING.md) - How to contribute to the project
 
 ### Help & Support
-- 🆘 [Troubleshooting Guide](./docs/troubleshooting.md) - Common issues and solutions
+- 🚑 [Troubleshooting Guide](./docs/troubleshooting.md) - Common issues and solutions
 - 💬 [GitHub Issues](https://github.com/nvidia-ai-iot/live-vlm-webui/issues) - Bug reports and feature requests
 - 🌐 [NVIDIA Developer Forums](https://forums.developer.nvidia.com/) - Community support
 
