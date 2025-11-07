@@ -1,0 +1,15 @@
+# System Icons
+
+Add system icons here (PNG format, 128x128px)
+
+Example icons:
+- jetson-thor.png
+- jetson-orin.png
+- dgx-spark.png
+- macbook.png
+- pc.png
+
+Icons are served at /images/filename.png
+
+See README.md for guidelines.
+
