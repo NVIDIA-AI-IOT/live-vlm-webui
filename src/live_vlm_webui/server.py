@@ -2,6 +2,7 @@
 WebRTC Live VLM WebUI Server
 Main server that handles WebRTC connections and serves the web interface
 """
+
 import asyncio
 import json
 import logging
@@ -11,7 +12,12 @@ import socket
 import subprocess
 import aiohttp
 from aiohttp import web
-from aiortc import RTCPeerConnection, RTCSessionDescription, MediaStreamTrack, RTCConfiguration, RTCIceServer
+from aiortc import (
+    RTCPeerConnection,
+    RTCSessionDescription,
+    RTCConfiguration,
+    RTCIceServer,
+)
 from aiortc.contrib.media import MediaRelay
 
 from .vlm_service import VLMService
@@ -20,8 +26,7 @@ from .gpu_monitor import create_monitor
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -34,7 +39,7 @@ gpu_monitor = None  # GPU monitoring instance
 gpu_monitor_task = None  # Background task for GPU monitoring
 
 
-def is_port_available(port, host='0.0.0.0'):
+def is_port_available(port, host="0.0.0.0"):
     """Check if a port is available for binding"""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
@@ -50,19 +55,13 @@ def find_process_using_port(port):
     try:
         # Try lsof first (more reliable)
         result = subprocess.run(
-            ['lsof', '-i', f':{port}', '-t'],
-            capture_output=True,
-            text=True,
-            timeout=2
+            ["lsof", "-i", f":{port}", "-t"], capture_output=True, text=True, timeout=2
         )
         if result.returncode == 0 and result.stdout.strip():
             pid = result.stdout.strip().split()[0]
             # Get process name
             name_result = subprocess.run(
-                ['ps', '-p', pid, '-o', 'comm='],
-                capture_output=True,
-                text=True,
-                timeout=2
+                ["ps", "-p", pid, "-o", "comm="], capture_output=True, text=True, timeout=2
             )
             if name_result.returncode == 0:
                 return f"PID {pid} ({name_result.stdout.strip()})"
@@ -70,13 +69,10 @@ def find_process_using_port(port):
         # lsof not available, try netstat
         try:
             result = subprocess.run(
-                ['netstat', '-tulpn'],
-                capture_output=True,
-                text=True,
-                timeout=2
+                ["netstat", "-tulpn"], capture_output=True, text=True, timeout=2
             )
-            for line in result.stdout.split('\n'):
-                if f':{port}' in line and 'LISTEN' in line:
+            for line in result.stdout.split("\n"):
+                if f":{port}" in line and "LISTEN" in line:
                     parts = line.split()
                     if len(parts) >= 7:
                         return parts[-1]  # PID/Program name
@@ -111,21 +107,23 @@ async def detect_local_service_and_model():
                 async with session.get(f"{api_base}/models") as resp:
                     if resp.status == 200:
                         data = await resp.json()
-                        models = data.get('data', [])
+                        models = data.get("data", [])
                         if models:
                             # Prefer vision models
-                            vision_keywords = ['vision', 'llava', 'llama-3.2', 'gemini']
+                            vision_keywords = ["vision", "llava", "llama-3.2", "gemini"]
                             for model in models:
-                                model_id = model.get('id', '')
+                                model_id = model.get("id", "")
                                 if any(keyword in model_id.lower() for keyword in vision_keywords):
                                     logger.info(f"✅ Auto-detected {service_name} at {api_base}")
                                     logger.info(f"   Selected model: {model_id}")
                                     return (api_base, model_id)
 
                             # If no vision model found, use the first one
-                            model_id = models[0].get('id', '')
+                            model_id = models[0].get("id", "")
                             logger.info(f"✅ Auto-detected {service_name} at {api_base}")
-                            logger.info(f"   Selected model: {model_id} (vision model preferred but not found)")
+                            logger.info(
+                                f"   Selected model: {model_id} (vision model preferred but not found)"
+                            )
                             return (api_base, model_id)
         except Exception as e:
             logger.debug(f"Service {service_name} not available at {api_base}: {e}")
@@ -144,48 +142,36 @@ async def models(request):
     """Return available models from the VLM API"""
     try:
         # Check if custom API base and key are provided in query params
-        api_base = request.rel_url.query.get('api_base')
-        api_key = request.rel_url.query.get('api_key')
+        api_base = request.rel_url.query.get("api_base")
+        api_key = request.rel_url.query.get("api_key")
 
         if api_base:
             # Query models from the provided API endpoint
             from openai import AsyncOpenAI
-            temp_client = AsyncOpenAI(
-                base_url=api_base,
-                api_key=api_key if api_key else "EMPTY"
-            )
+
+            temp_client = AsyncOpenAI(base_url=api_base, api_key=api_key if api_key else "EMPTY")
             models_response = await temp_client.models.list()
             models_list = [
-                {
-                    "id": model.id,
-                    "name": model.id,
-                    "current": False
-                }
+                {"id": model.id, "name": model.id, "current": False}
                 for model in models_response.data
             ]
             return web.Response(
-                content_type="application/json",
-                text=json.dumps({"models": models_list})
+                content_type="application/json", text=json.dumps({"models": models_list})
             )
         elif vlm_service:
             # Use the server's VLM service
             models_response = await vlm_service.client.models.list()
             models_list = [
-                {
-                    "id": model.id,
-                    "name": model.id,
-                    "current": model.id == vlm_service.model
-                }
+                {"id": model.id, "name": model.id, "current": model.id == vlm_service.model}
                 for model in models_response.data
             ]
             return web.Response(
-                content_type="application/json",
-                text=json.dumps({"models": models_list})
+                content_type="application/json", text=json.dumps({"models": models_list})
             )
         else:
             return web.Response(
                 content_type="application/json",
-                text=json.dumps({"models": [], "error": "VLM service not initialized"})
+                text=json.dumps({"models": [], "error": "VLM service not initialized"}),
             )
     except Exception as e:
         logger.error(f"Error fetching models: {e}")
@@ -193,13 +179,16 @@ async def models(request):
         if vlm_service:
             return web.Response(
                 content_type="application/json",
-                text=json.dumps({
-                    "models": [{"id": vlm_service.model, "name": vlm_service.model, "current": True}]
-                })
+                text=json.dumps(
+                    {
+                        "models": [
+                            {"id": vlm_service.model, "name": vlm_service.model, "current": True}
+                        ]
+                    }
+                ),
             )
         return web.Response(
-            content_type="application/json",
-            text=json.dumps({"models": [], "error": str(e)})
+            content_type="application/json", text=json.dumps({"models": [], "error": str(e)})
         )
 
 
@@ -233,20 +222,19 @@ async def detect_services(request):
 
     # Default to NVIDIA API Catalog if no local services found
     if not detected:
-        detected.append({
-            "name": "NVIDIA API Catalog",
-            "url": "https://integrate.api.nvidia.com/v1",
-            "port": None,
-            "path": None,
-            "requires_key": True
-        })
+        detected.append(
+            {
+                "name": "NVIDIA API Catalog",
+                "url": "https://integrate.api.nvidia.com/v1",
+                "port": None,
+                "path": None,
+                "requires_key": True,
+            }
+        )
 
     return web.Response(
         content_type="application/json",
-        text=json.dumps({
-            "detected": detected,
-            "default": detected[0] if detected else None
-        })
+        text=json.dumps({"detected": detected, "default": detected[0] if detected else None}),
     )
 
 
@@ -260,20 +248,18 @@ async def websocket_handler(request):
 
     try:
         # Send initial message with current server configuration
-        await ws.send_json({
-            "type": "status",
-            "text": "Connected to server",
-            "status": "Ready"
-        })
+        await ws.send_json({"type": "status", "text": "Connected to server", "status": "Ready"})
 
         # Send current server configuration
         if vlm_service:
-            await ws.send_json({
-                "type": "server_config",
-                "model": vlm_service.model,
-                "api_base": vlm_service.api_base,
-                "prompt": vlm_service.prompt
-            })
+            await ws.send_json(
+                {
+                    "type": "server_config",
+                    "model": vlm_service.model,
+                    "api_base": vlm_service.api_base,
+                    "prompt": vlm_service.prompt,
+                }
+            )
 
         # Keep connection alive and handle incoming messages
         async for msg in ws:
@@ -281,24 +267,26 @@ async def websocket_handler(request):
                 try:
                     data = json.loads(msg.data)
 
-                    if data.get('type') == 'update_prompt':
-                        new_prompt = data.get('prompt', '').strip()
-                        max_tokens = data.get('max_tokens')
+                    if data.get("type") == "update_prompt":
+                        new_prompt = data.get("prompt", "").strip()
+                        max_tokens = data.get("max_tokens")
                         if new_prompt and vlm_service:
                             vlm_service.update_prompt(new_prompt, max_tokens)
                             logger.info(f"Prompt updated: {new_prompt}, max_tokens: {max_tokens}")
 
                             # Confirm to client
-                            await ws.send_json({
-                                "type": "prompt_updated",
-                                "prompt": new_prompt,
-                                "max_tokens": max_tokens
-                            })
+                            await ws.send_json(
+                                {
+                                    "type": "prompt_updated",
+                                    "prompt": new_prompt,
+                                    "max_tokens": max_tokens,
+                                }
+                            )
 
-                    elif data.get('type') == 'update_model':
-                        new_model = data.get('model', '').strip()
-                        api_base = data.get('api_base', '').strip()
-                        api_key = data.get('api_key', '').strip()
+                    elif data.get("type") == "update_model":
+                        new_model = data.get("model", "").strip()
+                        api_base = data.get("api_base", "").strip()
+                        api_key = data.get("api_key", "").strip()
 
                         if new_model and vlm_service:
                             # Update model
@@ -307,44 +295,53 @@ async def websocket_handler(request):
                             # Update API settings if provided
                             # User may have switched to different service (Ollama ↔ vLLM)
                             if api_base:
-                                vlm_service.update_api_settings(api_base, api_key if api_key else None)
+                                vlm_service.update_api_settings(
+                                    api_base, api_key if api_key else None
+                                )
                                 logger.info(f"Model updated: {new_model}, API: {api_base}")
                             else:
                                 logger.info(f"Model updated: {new_model}")
 
                             # Confirm to client
-                            await ws.send_json({
-                                "type": "model_updated",
-                                "model": new_model,
-                                "api_base": vlm_service.api_base
-                            })
+                            await ws.send_json(
+                                {
+                                    "type": "model_updated",
+                                    "model": new_model,
+                                    "api_base": vlm_service.api_base,
+                                }
+                            )
 
-                    elif data.get('type') == 'update_processing':
-                        process_every = data.get('process_every', 30)
+                    elif data.get("type") == "update_processing":
+                        process_every = data.get("process_every", 30)
                         try:
                             process_every = int(process_every)
                             if 1 <= process_every <= 3600:  # Up to 3600 frames (2 minutes @ 30fps)
                                 from .video_processor import VideoProcessorTrack
+
                                 old_value = VideoProcessorTrack.process_every_n_frames
                                 VideoProcessorTrack.process_every_n_frames = process_every
-                                logger.info(f"Processing interval updated: {old_value} → {process_every} frames")
+                                logger.info(
+                                    f"Processing interval updated: {old_value} → {process_every} frames"
+                                )
 
                                 # Confirm to client
-                                await ws.send_json({
-                                    "type": "processing_updated",
-                                    "process_every": process_every
-                                })
+                                await ws.send_json(
+                                    {"type": "processing_updated", "process_every": process_every}
+                                )
                             else:
-                                logger.warning(f"Processing interval out of range (1-3600): {process_every}")
+                                logger.warning(
+                                    f"Processing interval out of range (1-3600): {process_every}"
+                                )
                         except ValueError:
                             logger.error(f"Invalid processing interval: {process_every}")
 
-                    elif data.get('type') == 'update_max_latency':
-                        max_latency = data.get('max_latency', 0.0)
+                    elif data.get("type") == "update_max_latency":
+                        max_latency = data.get("max_latency", 0.0)
                         try:
                             max_latency = float(max_latency)
                             if 0 <= max_latency <= 10.0:
                                 from .video_processor import VideoProcessorTrack
+
                                 old_value = VideoProcessorTrack.max_frame_latency
                                 VideoProcessorTrack.max_frame_latency = max_latency
                                 status = "disabled" if max_latency == 0 else f"{max_latency:.1f}s"
@@ -352,10 +349,9 @@ async def websocket_handler(request):
                                 logger.info(f"Max frame latency updated: {old_status} → {status}")
 
                                 # Confirm to client
-                                await ws.send_json({
-                                    "type": "max_latency_updated",
-                                    "max_latency": max_latency
-                                })
+                                await ws.send_json(
+                                    {"type": "max_latency_updated", "max_latency": max_latency}
+                                )
                             else:
                                 logger.warning(f"Max latency out of range (0-10.0): {max_latency}")
                         except ValueError:
@@ -365,7 +361,7 @@ async def websocket_handler(request):
                 except Exception as e:
                     logger.error(f"Error handling client message: {e}")
             elif msg.type == web.WSMsgType.ERROR:
-                logger.error(f'WebSocket error: {ws.exception()}')
+                logger.error(f"WebSocket error: {ws.exception()}")
     finally:
         websockets.discard(ws)
         logger.info(f"WebSocket client disconnected. Total clients: {len(websockets)}")
@@ -378,11 +374,7 @@ def broadcast_text_update(text: str, metrics: dict):
     if not websockets:
         return
 
-    message = json.dumps({
-        "type": "vlm_response",
-        "text": text,
-        "metrics": metrics
-    })
+    message = json.dumps({"type": "vlm_response", "text": text, "metrics": metrics})
 
     # Send to all connected clients
     dead_websockets = set()
@@ -403,10 +395,7 @@ def broadcast_gpu_stats(stats: dict):
     if not websockets:
         return
 
-    message = json.dumps({
-        "type": "gpu_stats",
-        "stats": stats
-    })
+    message = json.dumps({"type": "gpu_stats", "stats": stats})
 
     # Send to all connected clients
     dead_websockets = set()
@@ -492,14 +481,12 @@ async def offer(request):
         if track.kind == "video":
             # Create processor track with VLM service and text callback
             processor_track = VideoProcessorTrack(
-                relay.subscribe(track),
-                vlm_service,
-                text_callback=broadcast_text_update
+                relay.subscribe(track), vlm_service, text_callback=broadcast_text_update
             )
 
             # Add processed track back to connection
             pc.addTrack(processor_track)
-            logger.info(f"Added processed video track back to peer connection")
+            logger.info("Added processed video track back to peer connection")
 
         @track.on("ended")
         async def on_ended():
@@ -516,10 +503,7 @@ async def offer(request):
 
     return web.Response(
         content_type="application/json",
-        text=json.dumps({
-            "sdp": pc.localDescription.sdp,
-            "type": pc.localDescription.type
-        })
+        text=json.dumps({"sdp": pc.localDescription.sdp, "type": pc.localDescription.type}),
     )
 
 
@@ -574,6 +558,44 @@ async def on_shutdown(app):
     logger.info("Cleanup complete")
 
 
+async def create_app(test_mode=False):
+    """
+    Create and configure the aiohttp web application.
+
+    Args:
+        test_mode: If True, skip GPU monitoring and use test configuration
+
+    Returns:
+        Configured web.Application instance
+    """
+    # Create web application
+    app = web.Application()
+    app.router.add_get("/", index)
+    app.router.add_get("/models", models)
+    app.router.add_get("/detect-services", detect_services)
+    app.router.add_get("/ws", websocket_handler)
+    app.router.add_post("/offer", offer)
+
+    # Serve static files (images, etc.)
+    if test_mode:
+        # In test mode, serve from src/live_vlm_webui/static/images
+        images_dir = os.path.join(os.path.dirname(__file__), "static", "images")
+    else:
+        # In production, images directory is at project root
+        images_dir = os.path.join(os.path.dirname(__file__), "..", "..", "images")
+
+    images_dir = os.path.abspath(images_dir)
+    if os.path.exists(images_dir):
+        app.router.add_static("/images", images_dir, name="images")
+        logger.info(f"Serving static files from: {images_dir}")
+
+    if not test_mode:
+        app.on_startup.append(on_startup)
+        app.on_shutdown.append(on_shutdown)
+
+    return app
+
+
 def main():
     """Main entry point"""
     import argparse
@@ -582,21 +604,35 @@ def main():
     parser = argparse.ArgumentParser(
         description="WebRTC Live VLM WebUI - Real-time vision model interaction",
         epilog="Examples:\n"
-               "  vLLM:    python server.py --model llama-3.2-11b-vision-instruct --api-base http://localhost:8000/v1\n"
-               "  SGLang:  python server.py --model llama-3.2-11b-vision-instruct --api-base http://localhost:30000/v1\n"
-               "  Ollama:  python server.py --model llava:7b --api-base http://localhost:11434/v1\n"
-               "  HTTPS:   python server.py --model llava:7b --api-base http://localhost:11434/v1 --ssl-cert cert.pem --ssl-key key.pem",
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        "  vLLM:    python server.py --model llama-3.2-11b-vision-instruct --api-base http://localhost:8000/v1\n"
+        "  SGLang:  python server.py --model llama-3.2-11b-vision-instruct --api-base http://localhost:30000/v1\n"
+        "  Ollama:  python server.py --model llava:7b --api-base http://localhost:11434/v1\n"
+        "  HTTPS:   python server.py --model llava:7b --api-base http://localhost:11434/v1 --ssl-cert cert.pem --ssl-key key.pem",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind to (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8090, help="Port to bind to (default: 8090)")
-    parser.add_argument("--auto-port", action="store_true", help="Automatically find available port if default is taken")
-    parser.add_argument("--model", help="VLM model name (optional, will auto-detect if not specified)")
-    parser.add_argument("--api-base", help="VLM API base URL (optional, will auto-detect or use NVIDIA NGC)")
-    parser.add_argument("--api-key", default="EMPTY",
-                        help="API key - use 'EMPTY' for local servers, required for NVIDIA NGC/OpenAI (default: EMPTY)")
-    parser.add_argument("--prompt", default="Describe what you see in this image in one sentence.",
-                        help="Prompt to send to VLM (default: 'Describe what you see...')")
+    parser.add_argument(
+        "--auto-port",
+        action="store_true",
+        help="Automatically find available port if default is taken",
+    )
+    parser.add_argument(
+        "--model", help="VLM model name (optional, will auto-detect if not specified)"
+    )
+    parser.add_argument(
+        "--api-base", help="VLM API base URL (optional, will auto-detect or use NVIDIA NGC)"
+    )
+    parser.add_argument(
+        "--api-key",
+        default="EMPTY",
+        help="API key - use 'EMPTY' for local servers, required for NVIDIA NGC/OpenAI (default: EMPTY)",
+    )
+    parser.add_argument(
+        "--prompt",
+        default="Describe what you see in this image in one sentence.",
+        help="Prompt to send to VLM (default: 'Describe what you see...')",
+    )
     parser.add_argument("--process-every", type=int, default=30, help="Process every Nth frame")
     parser.add_argument("--ssl-cert", help="Path to SSL certificate file (enables HTTPS)")
     parser.add_argument("--ssl-key", help="Path to SSL private key file (enables HTTPS)")
@@ -633,16 +669,11 @@ def main():
 
     # Initialize VLM service
     global vlm_service
-    vlm_service = VLMService(
-        model=model,
-        api_base=api_base,
-        api_key=api_key,
-        prompt=args.prompt
-    )
+    vlm_service = VLMService(model=model, api_base=api_base, api_key=api_key, prompt=args.prompt)
 
     # Log initialization with better formatting
     service_name = "Local" if "localhost" in api_base or "127.0.0.1" in api_base else "Cloud"
-    logger.info(f"Initialized VLM service:")
+    logger.info("Initialized VLM service:")
     logger.info(f"  Model: {model}")
     logger.info(f"  API: {api_base} ({service_name})")
     logger.info(f"  Prompt: {args.prompt}")
@@ -651,24 +682,8 @@ def main():
     # (This is a bit hacky but works for this demo)
     VideoProcessorTrack.process_every_n_frames = args.process_every
 
-    # Create web application
-    app = web.Application()
-    app.router.add_get("/", index)
-    app.router.add_get("/models", models)
-    app.router.add_get("/detect-services", detect_services)
-    app.router.add_get("/ws", websocket_handler)
-    app.router.add_post("/offer", offer)
-
-    # Serve static files (images, etc.)
-    # Images directory is at project root, two levels up from this file
-    images_dir = os.path.join(os.path.dirname(__file__), "..", "..", "images")
-    images_dir = os.path.abspath(images_dir)
-    if os.path.exists(images_dir):
-        app.router.add_static("/images", images_dir, name="images")
-        logger.info(f"Serving static files from: {images_dir}")
-
-    app.on_startup.append(on_startup)
-    app.on_shutdown.append(on_shutdown)
+    # Create web application using create_app
+    app = asyncio.run(create_app(test_mode=False))
 
     # Setup SSL if certificates provided
     ssl_context = None
@@ -696,23 +711,25 @@ def main():
 
     # Get all network interfaces using hostname -I (more reliable)
     try:
-        result = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=1)
+        result = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=1)
         if result.returncode == 0:
             ips = result.stdout.strip().split()
             for ip in ips:
                 # Filter out loopback and docker bridges (172.17.x.x)
-                if not ip.startswith('127.') and not ip.startswith('172.17.'):
+                if not ip.startswith("127.") and not ip.startswith("172.17."):
                     logger.info(f"  Network: {protocol}://{ip}:{args.port}")
-    except:
+    except Exception:
+
         # Fallback to socket method
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
             ip = s.getsockname()[0]
             s.close()
-            if ip and ip != '127.0.0.1':
+            if ip and ip != "127.0.0.1":
                 logger.info(f"  Network: {protocol}://{ip}:{args.port}")
-        except:
+        except Exception:
+
             pass
 
     logger.info("=" * 70)
@@ -737,4 +754,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -3,6 +3,7 @@ VLM Service
 Handles async image analysis using any OpenAI-compatible VLM API
 (Works with vLLM, SGLang, Ollama, OpenAI, etc.)
 """
+
 import asyncio
 import base64
 import io
@@ -24,7 +25,7 @@ class VLMService:
         api_base: str = "http://localhost:8000/v1",
         api_key: str = "EMPTY",
         prompt: str = "Describe what you see in this image in one sentence.",
-        max_tokens: int = 512
+        max_tokens: int = 512,
     ):
         """
         Initialize VLM service
@@ -41,10 +42,7 @@ class VLMService:
         self.api_key = api_key if api_key else "EMPTY"
         self.prompt = prompt
         self.max_tokens = max_tokens
-        self.client = AsyncOpenAI(
-            base_url=api_base,
-            api_key=api_key
-        )
+        self.client = AsyncOpenAI(base_url=api_base, api_key=api_key)
         self.current_response = "Initializing..."
         self.is_processing = False
         self._processing_lock = asyncio.Lock()
@@ -73,35 +71,27 @@ class VLMService:
 
             # Convert PIL Image to base64
             img_byte_arr = io.BytesIO()
-            image.save(img_byte_arr, format='JPEG')
+            image.save(img_byte_arr, format="JPEG")
             img_byte_arr = img_byte_arr.getvalue()
-            img_base64 = base64.b64encode(img_byte_arr).decode('utf-8')
+            img_base64 = base64.b64encode(img_byte_arr).decode("utf-8")
 
             # Create message with image
             messages = [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": prompt
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/jpeg;base64,{img_base64}"
-                                }
-                            }
-                        ]
-                    }
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"},
+                        },
+                    ],
+                }
             ]
 
             # Call API
             response = await self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                max_tokens=self.max_tokens,
-                temperature=0.7
+                model=self.model, messages=messages, max_tokens=self.max_tokens, temperature=0.7
             )
 
             # Calculate latency
@@ -159,14 +149,15 @@ class VLMService:
         Returns:
             Dict with latency and throughput metrics
         """
-        avg_latency = (self.total_inference_time / self.total_inferences
-                      if self.total_inferences > 0 else 0.0)
+        avg_latency = (
+            self.total_inference_time / self.total_inferences if self.total_inferences > 0 else 0.0
+        )
 
         return {
             "last_latency_ms": self.last_inference_time * 1000,
             "avg_latency_ms": avg_latency * 1000,
             "total_inferences": self.total_inferences,
-            "is_processing": self.is_processing
+            "is_processing": self.is_processing,
         }
 
     def update_prompt(self, new_prompt: str, max_tokens: Optional[int] = None) -> None:
@@ -184,7 +175,9 @@ class VLMService:
         else:
             logger.info(f"Updated prompt to: {new_prompt}")
 
-    def update_api_settings(self, api_base: Optional[str] = None, api_key: Optional[str] = None) -> None:
+    def update_api_settings(
+        self, api_base: Optional[str] = None, api_key: Optional[str] = None
+    ) -> None:
         """
         Update API base URL and/or API key, recreating the client
 
@@ -198,10 +191,11 @@ class VLMService:
             self.api_key = api_key if api_key else "EMPTY"
 
         # Recreate the client with new settings
-        self.client = AsyncOpenAI(
-            base_url=self.api_base,
-            api_key=self.api_key
-        )
+        self.client = AsyncOpenAI(base_url=self.api_base, api_key=self.api_key)
 
-        masked_key = "***" + self.api_key[-4:] if self.api_key and len(self.api_key) > 4 and self.api_key != "EMPTY" else "EMPTY"
+        masked_key = (
+            "***" + self.api_key[-4:]
+            if self.api_key and len(self.api_key) > 4 and self.api_key != "EMPTY"
+            else "EMPTY"
+        )
         logger.info(f"Updated API settings - base: {self.api_base}, key: {masked_key}")

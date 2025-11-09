@@ -1,48 +1,52 @@
-# Cursor Reference Documentation
+# Cursor AI Personal Reference Documentation
 
-This directory contains AI-generated reference documentation, setup guides, and planning documents created during development.
+This directory is for **your personal reference documentation** created during development sessions with Cursor AI.
+
+## ⚠️ Not in Upstream Repo
+
+**This directory exists only on your local machine:**
+- ❌ **NOT committed to git** (in `.gitignore`)
+- ❌ **NOT found in upstream repo** when cloning
+- ✅ Each developer has their own `docs/cursor/` with their own content
 
 ## Purpose
 
-- **Local reference only** - Not committed to git (excluded via `.gitignore`)
-- **Development aids** - Setup guides, verification checklists, design notes
-- **Temporary docs** - Testing scripts, transfer helpers, internal notes
+- 📝 Explains decisions and context from YOUR specific development work
+- 🔍 Provides detailed explanations for YOUR specific issues/questions
+- 📚 Serves as YOUR reference for understanding "why" decisions were made
+- 🤖 Created by Cursor AI during your sessions
 
-## Contents
+## Example Files (Yours Will Be Different)
 
-Current reference docs:
+These are examples of what YOU might have - but each developer's content is different:
 
-**Mac Support:**
-- `MAC_SETUP.md` - Complete Mac setup guide with Ollama
-- `MAC_VERIFICATION_STEPS.md` - Step-by-step Mac testing checklist
-- `CHANGES_FOR_MAC_SUPPORT.md` - Technical details of Mac implementation
-- `package_for_transfer.sh` - Helper script for file transfer
-- **Note:** `test_gpu_monitor_mac.py` is committed in project root (useful for Mac users)
+- `INTEGRATION_VS_E2E_EXPLANATION.md` - Explanation of testing approaches
+- `YOUR_FEATURE_DESIGN.md` - Design decisions for your feature
+- `DEBUGGING_NOTES.md` - Notes from debugging your specific issue
+- `PERFORMANCE_INVESTIGATION.md` - Notes from your performance work
 
-**Multi-User Architecture:**
-- `MULTI_USER_ANALYSIS.md` - Deep dive into single vs multi-user architecture
-- `QUICK_REFERENCE_MULTI_USER.md` - Quick reference for multi-user considerations
-- `ARCHITECTURE_DIAGRAMS.md` - Detailed architecture diagrams and data flow
-- `MULTI_INSTANCE_DEPLOYMENT.md` - Multi-instance deployment guide (Docker, systemd, k8s)
+## General Documentation
 
-**Project Planning:**
-- `ROADMAP.md` - Detailed implementation roadmap with feature planning
+For **general, user-facing documentation**, see:
+- `../` - General docs directory
+- `../../tests/README.md` - Testing guide
+- `../../README.md` - Main project documentation
 
-## Convention
+## Guidelines (from `.cursorrules`)
 
-Per `.cursorrules`, all Cursor-generated reference docs should:
-1. Be placed in this directory
-2. Use ALL_CAPS_WITH_UNDERSCORES naming
-3. Be kept locally (not committed)
+Put docs here if they:
+- ✅ Explain decisions made in a specific conversation
+- ✅ Address "your issue" or "your question"
+- ✅ Are written conversationally (addressing "you")
+- ✅ Provide context for specific development sessions
+- ✅ Are reference material, not general documentation
 
-## For Public Documentation
+Put docs elsewhere if they:
+- ❌ Are general documentation for any user/contributor
+- ❌ Should be committed to git
+- ❌ Are written for a general audience
+- ❌ Document features/APIs/usage
 
-User-facing documentation should go in project root:
-- `README.md` - Main project docs
-- `ROADMAP.md` - Public roadmap
-- Other guides intended for users
+## Note
 
----
-
-**Note:** This directory and its contents are excluded from git. Each developer maintains their own local reference docs.
-
+This directory is `.gitignore`d - these docs stay local on your machine and provide context for your development work.

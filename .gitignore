@@ -16,53 +16,65 @@ parts/
 sdist/
 var/
 wheels/
-pip-wheel-metadata/
-share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
-
-# PyPI/Package build
-.pypirc
-
-# Virtual Environment
-venv/
-env/
-ENV/
-.venv
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
 
 # Testing
 .pytest_cache/
 .coverage
 htmlcov/
+coverage.json
+.tox/
+.hypothesis/
+test-results/  # Playwright test results & videos
 
-# Environment variables
+# Performance testing
+# Local baselines (each developer has their own)
+.performance_baseline.json
+
+# But DO commit target hardware baselines for CI
+# Example: .baseline-jetson-orin-nano.json
+# Example: .baseline-jetson-agx-orin.json
+
+# Profiling artifacts
+*.stats
+profile.*.stats
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Cursor AI reference docs (local only)
+docs/cursor/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Jupyter
+.ipynb_checkpoints
+
+# Logs
+*.log
+
+# Build artifacts
+*.whl
+
+# Local config
 .env
+.env.local
 
-# SSL Certificates (regenerate locally)
-*.pem
+# E2E test data (large video files)
+tests/e2e/.test-data/
+
+# SSL certificates (sensitive)
 cert.pem
 key.pem
-
-# Docker
-docker-compose.override.yml
-
-# Cursor-generated reference documentation (keep locally, don't commit)
-docs/cursor/*
-!docs/cursor/README.md
-
+*.pem

@@ -2,11 +2,11 @@
 Video Track Processor
 Handles video frames, adds text overlays, and manages VLM processing
 """
+
 import asyncio
 import cv2
 import numpy as np
 from PIL import Image
-from av import VideoFrame
 from aiortc import VideoStreamTrack
 from typing import Optional
 import logging
@@ -27,6 +27,7 @@ class VideoProcessorTrack(VideoStreamTrack):
     Video track that receives frames, sends them to VLM for analysis,
     and overlays responses on the video before sending back
     """
+
     # Class variable for frame processing interval (can be updated dynamically)
     process_every_n_frames = 30
     # Max allowed latency before dropping frames (in seconds, 0 = disabled)
@@ -58,7 +59,9 @@ class VideoProcessorTrack(VideoStreamTrack):
                 self.first_frame_time = time.time()
                 # Store time_base for PTS conversion (e.g., 1/90000 for 90kHz clock)
                 self.frame_time_base = float(frame.time_base)
-                logger.info(f"Latency tracking initialized: PTS={frame.pts}, time_base={frame.time_base} ({self.frame_time_base}s per tick)")
+                logger.info(
+                    f"Latency tracking initialized: PTS={frame.pts}, time_base={frame.time_base} ({self.frame_time_base}s per tick)"
+                )
 
             # Calculate actual frame age (latency) using PTS and time_base
             # PTS is in time_base units, convert to seconds: pts * time_base
@@ -70,7 +73,9 @@ class VideoProcessorTrack(VideoStreamTrack):
             # Check for accumulated latency and drop old frames if needed (only if max_latency > 0)
             max_latency = self.__class__.max_frame_latency
             if max_latency > 0 and frame_latency > max_latency:
-                logger.warning(f"Frame is {frame_latency:.2f}s behind, dropping frames (threshold: {max_latency}s)")
+                logger.warning(
+                    f"Frame is {frame_latency:.2f}s behind, dropping frames (threshold: {max_latency}s)"
+                )
 
                 # Drop frames until we get a fresh one
                 dropped_count = 0
@@ -88,14 +93,18 @@ class VideoProcessorTrack(VideoStreamTrack):
 
                     # Prevent infinite loop
                     if dropped_count > 100:
-                        logger.error(f"Dropped {dropped_count} frames, but still behind. Resetting timing.")
+                        logger.error(
+                            f"Dropped {dropped_count} frames, but still behind. Resetting timing."
+                        )
                         self.first_frame_pts = frame.pts
                         self.first_frame_time = time.time()
                         self.frame_time_base = float(frame.time_base)
                         break
 
                 if dropped_count > 0:
-                    logger.info(f"Dropped {dropped_count} frames, now at {frame_latency:.2f}s latency")
+                    logger.info(
+                        f"Dropped {dropped_count} frames, now at {frame_latency:.2f}s latency"
+                    )
 
             # Increment frame counter
             self.frame_count += 1
@@ -115,7 +124,9 @@ class VideoProcessorTrack(VideoStreamTrack):
 
                 # Log timing every 100 frames to identify bottlenecks
                 if self.frame_count % 100 == 0:
-                    logger.info(f"Frame conversion times: to_ndarray={1000*(t2-t1):.1f}ms, copy={1000*(t3-t2):.1f}ms")
+                    logger.info(
+                        f"Frame conversion times: to_ndarray={1000*(t2-t1):.1f}ms, copy={1000*(t3-t2):.1f}ms"
+                    )
 
                 # Log first frame
                 if self.frame_count == 1:
@@ -178,12 +189,12 @@ class VideoProcessorTrack(VideoStreamTrack):
                 current_length += len(word) + 1
             else:
                 if current_line:
-                    lines.append(' '.join(current_line))
+                    lines.append(" ".join(current_line))
                 current_line = [word]
                 current_length = len(word)
 
         if current_line:
-            lines.append(' '.join(current_line))
+            lines.append(" ".join(current_line))
 
         # Text properties
         font = cv2.FONT_HERSHEY_SIMPLEX
@@ -199,13 +210,7 @@ class VideoProcessorTrack(VideoStreamTrack):
 
         # Create semi-transparent overlay at bottom
         overlay = img_copy.copy()
-        cv2.rectangle(
-            overlay,
-            (0, height - total_text_height),
-            (width, height),
-            bg_color,
-            -1
-        )
+        cv2.rectangle(overlay, (0, height - total_text_height), (width, height), bg_color, -1)
 
         # Blend overlay with original image
         alpha = 0.7
@@ -222,9 +227,8 @@ class VideoProcessorTrack(VideoStreamTrack):
                 font_scale,
                 text_color,
                 font_thickness,
-                cv2.LINE_AA
+                cv2.LINE_AA,
             )
             y_position += line_height
 
         return img_copy
-
