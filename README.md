@@ -25,7 +25,7 @@ Stream your webcam to any VLM and get live AI-powered analysis - perfect for tes
 
 ## 🚀 Quick Start (Easiest Way!)
 
-**For PC, Mac, and DGX systems:**
+**For PC, Mac, DGX, and Jetson systems:**
 
 ```bash
 pip install live-vlm-webui
@@ -35,51 +35,87 @@ live-vlm-webui
 **Access the WebUI:** Open **`https://localhost:8090`** in your browser
 
 > [!WARNING]
-> **PyPI package coming soon!** For now, use [Jetson Quick Start](#-jetson-quick-start) (Docker) or [Development Installation](#-development-installation-from-source) below.
+> **PyPI package coming soon!** Works on all platforms including Jetson (requires openssl).
+> For now, use [Jetson Quick Start](#-jetson-quick-start) for platform-specific instructions or [Development Installation](#-development-installation-from-source) below.
 
 > [!NOTE]
-> - SSL certificates auto-generate on first run. Accept the browser warning.
-> - You'll need a VLM backend running (Ollama, vLLM, etc.). See [VLM Backend Setup](#-setting-up-your-vlm-backend) below.
+> **Requirements:**
+> - **OpenSSL** - Required for SSL certificate generation (webcam access needs HTTPS)
+>   - Pre-installed on most systems (Ubuntu, macOS, WSL2, Jetson, DGX)
+>   - If missing, the server will provide clear installation instructions
+> - **VLM Backend** - Ollama, vLLM, or cloud API. See [VLM Backend Setup](#-setting-up-your-vlm-backend) below
+>
+> SSL certificates auto-generate on first run. Accept the browser security warning to proceed.
 
 **Platforms supported:**
 - ✅ Linux (x86_64, ARM64)
 - ✅ macOS (Intel & Apple Silicon)
 - ✅ Windows (via WSL2)
-- ⚠️ **Not recommended for Jetson** - see [Jetson Quick Start](#-jetson-quick-start) below
+- ✅ **Jetson (Orin, Thor)** - pip works! See [Jetson Quick Start](#-jetson-quick-start) for details
 
 ---
 
 ## 🤖 Jetson Quick Start
 
-**For Jetson Orin & Jetson Thor, we strongly recommend Docker:**
+> [!IMPORTANT]
+> **Requires JetPack 6.x** (Python 3.10+). JetPack 5.x has Python 3.8 which is not supported.
+> If on JetPack 5.x, use [Docker](#option-2-docker-recommended-for-production) or upgrade to JetPack 6.
+
+### Option 1: pip install (Simplest for Development)
+
+**For Jetson Orin & Jetson Thor with JetPack 6:**
 
 ```bash
-# 1. Clone the repository
+# Check if openssl is installed (usually is)
+which openssl
+
+# If not installed:
+sudo apt install openssl
+
+# Install the package (use python3 -m pip for reliability)
+python3 -m pip install live-vlm-webui
+
+# Run it
+python3 -m live_vlm_webui.server
+
+# OR add to PATH and use the command directly:
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+live-vlm-webui
+```
+
+**Access the WebUI:** Open **`https://localhost:8090`** in your browser
+
+**Benefits:**
+- ✅ Quick installation
+- ✅ Easy for development and testing
+- ✅ Direct access to logs and debugging
+- ✅ No container overhead
+
+### Option 2: Docker (Recommended for Production)
+
+**For production deployments:**
+
+```bash
+# Clone the repository
 git clone https://github.com/nvidia-ai-iot/live-vlm-webui.git
 cd live-vlm-webui
 
-# 2. Run the auto-detection script
+# Run the auto-detection script
 ./scripts/start_container.sh
 ```
 
-That's it! The script will:
+The script will:
 - ✅ Auto-detect your Jetson platform (Orin or Thor)
 - ✅ Pull the appropriate pre-built image from GitHub Container Registry
 - ✅ Configure GPU access automatically
 - ✅ Start the container with correct settings
 
-**Access the WebUI:** Open **`https://localhost:8090`** in your browser
-
-**Why Docker for Jetson?**
+**Why Docker for production?**
+- ✅ Isolated environment
 - ✅ No system package dependencies
+- ✅ Reproducible deployments
 - ✅ No JetPack conflicts
-- ✅ Works out-of-the-box
-- ✅ Production-ready
-
-> [!TIP]
-> The pip package works on Jetson but requires additional setup:
-> `sudo apt install python3.10-venv` and manual pip upgrades.
-> Docker is significantly easier!
 
 ---
 

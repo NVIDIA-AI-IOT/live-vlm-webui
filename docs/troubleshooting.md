@@ -55,7 +55,151 @@ ModuleNotFoundError: No module named 'live_vlm_webui'
 
 ---
 
+### pip: command not found (Jetson)
+
+**Issue:** On Jetson, running `pip install` shows:
+```
+-bash: pip: command not found
+```
+
+**Solution:** Use `python3 -m pip` instead, which is more reliable:
+```bash
+# Use python3 -m pip (works on all systems)
+python3 -m pip install live-vlm-webui
+
+# Run the server
+python3 -m live_vlm_webui.server
+```
+
+**Why this happens:** Jetson doesn't always install the `pip` command by default, but `python3 -m pip` always works because it uses Python's built-in pip module.
+
+**Optional:** If you want to use `pip` directly:
+```bash
+sudo apt install python3-pip
+```
+
+---
+
+### Jetson-Specific Installation
+
+**Issue:** Installation on Jetson Orin/Thor
+
+**Solutions:**
+
+**Option 1: pip install (Recommended for Development)**
+```bash
+# Install openssl if not already present
+sudo apt install openssl
+
+# Install the package (use python3 -m pip for reliability)
+python3 -m pip install live-vlm-webui
+
+# Run it
+python3 -m live_vlm_webui.server
+
+# Optional: Add to PATH for shorter command
+export PATH="$HOME/.local/bin:$PATH"
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+live-vlm-webui
+```
+
+**Option 2: Docker (Recommended for Production)**
+- See [Jetson Quick Start](../README.md#-jetson-quick-start) in the main README
+- Docker avoids all Python environment issues
+
+**Note:** If creating a virtual environment on Jetson fails with "ensurepip is not available":
+```bash
+# This is only needed for venv creation, not pip install
+sudo apt install python3.10-venv
+```
+
+However, **you don't need a venv** for basic pip installation! Direct pip install to user site-packages works perfectly on Jetson.
+
+---
+
+### pip: command not found (Jetson)
+
+**Issue:** Running `pip install` shows:
+```
+-bash: pip: command not found
+```
+
+**Solution:** Use `python3 -m pip` instead (more reliable):
+
+```bash
+# Instead of: pip install live-vlm-webui
+python3 -m pip install live-vlm-webui
+
+# Run with:
+python3 -m live_vlm_webui.server
+```
+
+**Why this happens:** On Jetson, the `pip` command might not be installed or linked, but `python3 -m pip` always works and guarantees you're using the correct Python's pip.
+
+**Alternative:** If you really want the `pip` command:
+```bash
+sudo apt install python3-pip
+```
+
+---
+
+### Python version error on Jetson (JetPack 5.x)
+
+**Issue:** Installation fails with:
+```
+ERROR: Package 'live-vlm-webui' requires a different Python: 3.8.10 not in '>=3.10'
+```
+
+**Cause:** JetPack 5.x comes with Python 3.8, but live-vlm-webui requires Python 3.10+.
+
+**Solution:** Upgrade to **JetPack 6** which includes Python 3.10:
+
+- **JetPack 5.x** → Python 3.8 ❌ (not supported)
+- **JetPack 6.x** → Python 3.10+ ✅ (supported)
+
+**Recommended:**
+1. Upgrade your Jetson to JetPack 6 using NVIDIA SDK Manager
+2. Or use Docker (recommended for JetPack 5.x users):
+   ```bash
+   git clone https://github.com/nvidia-ai-iot/live-vlm-webui.git
+   cd live-vlm-webui
+   ./scripts/start_container.sh
+   ```
+
+**Why Python 3.10+?** The project uses modern Python features and dependencies (like `match` statements, typing improvements) that require Python 3.10 or newer.
+
+---
+
 ## Camera Issues
+
+### Server fails to start: "Cannot start server without SSL certificates"
+
+**Issue:** Server exits immediately with:
+```
+❌ Cannot start server without SSL certificates
+❌ Webcam access requires HTTPS!
+```
+
+**Solution:** Install openssl to enable automatic SSL certificate generation:
+
+```bash
+# Linux/Jetson
+sudo apt install openssl
+
+# macOS
+brew install openssl
+
+# Then restart the server
+live-vlm-webui
+```
+
+**Alternative:** If you don't need camera access (testing only), use:
+```bash
+live-vlm-webui --no-ssl
+```
+
+**Why this happens:** Modern browsers require HTTPS for webcam access. The server auto-generates SSL certificates using openssl if it's not installed, the server will fail to start to prevent confusion.
 
 ### Camera not accessible
 
@@ -63,8 +207,7 @@ ModuleNotFoundError: No module named 'live_vlm_webui'
 
 **Solutions:**
 - ✅ Make sure you're using **HTTPS** (not HTTP)
-- ✅ Generate SSL certificates: `./generate_cert.sh`
-- ✅ Start server with SSL: `./start_server.sh` or add `--ssl-cert cert.pem --ssl-key key.pem`
+- ✅ Verify SSL certificates were auto-generated (check server logs for "✅ Generated cert.pem and key.pem")
 - ✅ Accept the security warning in your browser (Advanced → Proceed)
 - ✅ Check browser permissions for camera access
 - ✅ Try Chrome/Edge (best WebRTC support)
