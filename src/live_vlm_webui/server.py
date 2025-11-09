@@ -771,7 +771,9 @@ def main():
                 logger.error("")
                 logger.error("   Then restart the server")
                 logger.error("")
-                logger.error("⚠️  Or run with --no-ssl if you don't need camera access (not recommended)")
+                logger.error(
+                    "⚠️  Or run with --no-ssl if you don't need camera access (not recommended)"
+                )
                 logger.error("")
                 sys.exit(1)
 
