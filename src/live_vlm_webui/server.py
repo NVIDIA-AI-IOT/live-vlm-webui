@@ -580,7 +580,7 @@ async def create_app(test_mode=False):
     # Always serve from static/images within the package (works for both pip and dev installs)
     images_dir = os.path.join(os.path.dirname(__file__), "static", "images")
     images_dir = os.path.abspath(images_dir)
-    
+
     if os.path.exists(images_dir):
         app.router.add_static("/images", images_dir, name="images")
         logger.info(f"Serving static files from: {images_dir}")
@@ -745,24 +745,39 @@ def main():
     if not args.no_ssl:
         # Try to auto-generate if certificates don't exist
         import os
+        import sys
 
         if not os.path.exists(args.ssl_cert) or not os.path.exists(args.ssl_key):
-            generate_self_signed_cert(args.ssl_cert, args.ssl_key)
+            success = generate_self_signed_cert(args.ssl_cert, args.ssl_key)
+            if not success:
+                # FAIL FAST - SSL is required for webcam access
+                logger.error("")
+                logger.error("❌ Cannot start server without SSL certificates")
+                logger.error("❌ Webcam access requires HTTPS!")
+                logger.error("")
+                logger.error("🔧 To fix, install openssl:")
+                logger.error("   Linux/Jetson: sudo apt install openssl")
+                logger.error("   macOS: brew install openssl")
+                logger.error("")
+                logger.error("   Then restart the server")
+                logger.error("")
+                logger.error("⚠️  Or run with --no-ssl if you don't need camera access (not recommended)")
+                logger.error("")
+                sys.exit(1)
 
-        # Load certificates if they exist
+        # Load certificates (they must exist at this point)
         if os.path.exists(args.ssl_cert) and os.path.exists(args.ssl_key):
             ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             ssl_context.load_cert_chain(args.ssl_cert, args.ssl_key)
             protocol = "https"
             logger.info("SSL enabled - using HTTPS")
         else:
-            logger.warning("⚠️  SSL certificates not found and could not be generated")
-            logger.warning("⚠️  Webcam access requires HTTPS!")
-            logger.warning(
-                "⚠️  Install openssl or generate manually with: openssl req -x509 -newkey rsa:4096 -nodes -out cert.pem -keyout key.pem -days 365 -subj '/CN=localhost'"
-            )
+            # This should never happen, but just in case
+            logger.error("❌ SSL certificates missing after generation - unexpected error")
+            sys.exit(1)
     else:
-        logger.warning("⚠️  SSL disabled - webcam access requires HTTPS!")
+        logger.warning("⚠️  SSL disabled with --no-ssl flag")
+        logger.warning("⚠️  Webcam access will NOT work without HTTPS!")
 
     # Get network addresses
     import socket
