@@ -1,5 +1,21 @@
 # Testing Quick Start Guide
 
+## First Time Setup: Install Pre-commit Hooks
+
+**Recommended:** Install pre-commit hooks to automatically check code quality before each commit:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+This will automatically run Black formatting and Ruff linting on every commit, catching issues before they reach CI.
+
+To run manually on all files:
+```bash
+pre-commit run --all-files
+```
+
 ## One-Line Commands
 
 ```bash

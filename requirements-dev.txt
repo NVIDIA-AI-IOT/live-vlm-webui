@@ -15,6 +15,7 @@ pytest-playwright>=0.4.0  # pip install pytest-playwright && playwright install
 black>=23.0
 ruff>=0.1.0
 mypy>=1.0
+pre-commit>=3.0  # Git hooks for code quality checks
 
 # Documentation
 sphinx>=7.0
