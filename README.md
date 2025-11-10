@@ -38,18 +38,12 @@ live-vlm-webui
 
 **Access the WebUI:** Open **`https://localhost:8090`** in your browser
 
-> [!WARNING]
-> **PyPI package coming soon!** Works on all platforms including Jetson (requires openssl).
-> For now, use [Jetson Quick Start](#-jetson-quick-start) for platform-specific instructions or [Development Installation](#-development-installation-from-source) below.
+> [!TIP]
+> **Now available on PyPI!** For platform-specific optimizations, see [Jetson Quick Start](#-jetson-quick-start) or [Docker Installation](#-docker-installation).
 
 > [!NOTE]
 > **Requirements:**
-> - **OpenSSL** - Required for SSL certificate generation (webcam access needs HTTPS)
->   - Pre-installed on most systems (Ubuntu, macOS, WSL2, Jetson, DGX)
->   - If missing, the server will provide clear installation instructions
-> - **VLM Backend** - Ollama, vLLM, or cloud API. See [VLM Backend Setup](#-setting-up-your-vlm-backend) below
->
-> SSL certificates auto-generate on first run. Accept the browser security warning to proceed.
+> - **VLM Backend** - Ollama, vLLM, or cloud API. See [VLM Backend Setup]
 
 **Platforms supported:**
 - ✅ Linux (x86_64, ARM64)
@@ -59,7 +53,7 @@ live-vlm-webui
 
 ---
 
-## 🤖 Jetson Quick Start
+## ✈️ Jetson Quick Start
 
 > [!IMPORTANT]
 > **Requires JetPack 6.x** (Python 3.10+) or **JetPack 7.0** (Python 3.12).
@@ -300,14 +294,13 @@ Choose the VLM backend that fits your needs:
 
 ### Quick Comparison
 
-| Backend | Setup Difficulty | Model Coverage | Speed | GPU Required |
-|---------|------------------|----------------|-------|--------------|
-| **Ollama** ✅    | 🟢 Easy   | 14+ vision models ([link](https://ollama.com/search?c=vision)) | 🟢 Fast | 🏠 Yes (local) |
-| **vLLM** ⚠️      | 🔴 Varies (works best on PC) | Widest HF model support | 🟢🟢 Fastest | 🏠 Yes (local) |
-| **SGLang** ⚠️    | 🔴 Varies (works best on PC) | Widest HF model support | 🟢🟢 Fastest | 🏠 Yes (local) |
-| **NVIDIA NIM** ⚠️ | 🟡 Medium | Limited VLM selection (improving) | 🟢🟢 Fastest | 🏠 Yes (local) |
-| **NVIDIA API Catalog** ✅ | 🟢 Easy | 12+ hosted VLMs     | 🟡 Depends | ☁️ No (cloud) |
-| **OpenAI API** ⚠️        | 🟢 Easy | GPT-4o, GPT-4o-mini | 🟡 Depends | ☁️ No (cloud) |
+| Backend | Setup Difficulty | Model Coverage | GPU Required |
+|---------|------------------|----------------|--------------|
+| **Ollama** ✅    | 🟢 Easy   | 14+ vision models ([link](https://ollama.com/search?c=vision)) | 🏠 Yes (local) |
+| **vLLM** ⚠️      | 🔴 Varies (works best on PC) | Widest HF model support | 🏠 Yes (local) |
+| **NVIDIA NIM** ⚠️ | 🟡 Medium | Limited VLM selection (improving) | 🏠 Yes (local) |
+| **NVIDIA API Catalog** ✅ | 🟢 Easy | 12+ hosted VLMs     | ☁️ No (cloud) |
+| **OpenAI API** ⚠️        | 🟢 Easy | GPT-4o, GPT-4o-mini | ☁️ No (cloud) |
 
 > **Legend**: ✅ Tested | ⚠️ Has auto-detection but not fully validated
 
