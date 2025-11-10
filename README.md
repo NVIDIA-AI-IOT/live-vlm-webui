@@ -286,12 +286,14 @@ Choose the VLM backend that fits your needs:
 
 | Backend | Setup Difficulty | Model Coverage | Speed | GPU Required |
 |---------|------------------|----------------|-------|--------------|
-| **Ollama**     | 🟢 Easy   | 14+ vision models ([link](https://ollama.com/search?c=vision)) | 🟢 Fast | 🏠 Yes (local) |
-| **vLLM**       | 🔴 Varies (works best on PC) | Widest HF model support | 🟢🟢 Fastest | 🏠 Yes (local) |
-| **SGLang**     | 🔴 Varies (works best on PC) | Widest HF model support | 🟢🟢 Fastest | 🏠 Yes (local) |
-| **NVIDIA NIM** | 🟡 Medium | Limited VLM selection (improving) | 🟢🟢 Fastest | 🏠 Yes (local) |
-| **NVIDIA API Catalog** | 🟢 Easy | 12+ hosted VLMs     | 🟡 Depends | ☁️ No (cloud) |
-| **OpenAI API**         | 🟢 Easy | GPT-4o, GPT-4o-mini | 🟡 Depends | ☁️ No (cloud) |
+| **Ollama** ✅    | 🟢 Easy   | 14+ vision models ([link](https://ollama.com/search?c=vision)) | 🟢 Fast | 🏠 Yes (local) |
+| **vLLM** ⚠️      | 🔴 Varies (works best on PC) | Widest HF model support | 🟢🟢 Fastest | 🏠 Yes (local) |
+| **SGLang** ⚠️    | 🔴 Varies (works best on PC) | Widest HF model support | 🟢🟢 Fastest | 🏠 Yes (local) |
+| **NVIDIA NIM** ⚠️ | 🟡 Medium | Limited VLM selection (improving) | 🟢🟢 Fastest | 🏠 Yes (local) |
+| **NVIDIA API Catalog** ✅ | 🟢 Easy | 12+ hosted VLMs     | 🟡 Depends | ☁️ No (cloud) |
+| **OpenAI API** ⚠️        | 🟢 Easy | GPT-4o, GPT-4o-mini | 🟡 Depends | ☁️ No (cloud) |
+
+> **Legend**: ✅ Tested | ⚠️ Has auto-detection but not fully validated
 
 ### Option A: Ollama (Recommended for Beginners)
 

@@ -25,7 +25,7 @@ This document consolidates all TODO items from across the codebase, categorized 
 
 ### 🔴 BLOCKING (Must complete before v0.1.0)
 
-- [ ] **Create CHANGELOG.md** - Required for release notes
+- [x] **Create CHANGELOG.md** - Required for release notes ✅
   - Location: `/home/lekto/live-vlm-webui/CHANGELOG.md`
   - Format: [Keep a Changelog](https://keepachangelog.com/)
   - Content: Document all changes since project start → v0.1.0

@@ -846,7 +846,10 @@ def main():
     logger.info("Access the server at:")
     logger.info(f"  Local:   {protocol}://localhost:{args.port}")
 
-    # Get all network interfaces using hostname -I (more reliable)
+    # Get network interfaces - try multiple methods for cross-platform support
+    network_ips = []
+
+    # Method 1: hostname -I (Linux)
     try:
         result = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=1)
         if result.returncode == 0:
@@ -854,20 +857,25 @@ def main():
             for ip in ips:
                 # Filter out loopback and docker bridges (172.17.x.x)
                 if not ip.startswith("127.") and not ip.startswith("172.17."):
-                    logger.info(f"  Network: {protocol}://{ip}:{args.port}")
+                    network_ips.append(ip)
     except Exception:
+        pass
 
-        # Fallback to socket method
+    # Method 2: Socket method (cross-platform fallback)
+    if not network_ips:
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
             ip = s.getsockname()[0]
             s.close()
             if ip and ip != "127.0.0.1":
-                logger.info(f"  Network: {protocol}://{ip}:{args.port}")
+                network_ips.append(ip)
         except Exception:
-
             pass
+
+    # Display all found network IPs
+    for ip in network_ips:
+        logger.info(f"  Network: {protocol}://{ip}:{args.port}")
 
     logger.info("=" * 70)
     logger.info("")

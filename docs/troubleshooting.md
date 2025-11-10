@@ -55,6 +55,28 @@ ModuleNotFoundError: No module named 'live_vlm_webui'
 
 ---
 
+### Dependency conflict warning with mlx-vlm (Mac)
+
+**Issue:** On Mac, pip shows a dependency conflict warning during installation:
+```
+ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+mlx-vlm 0.3.2 requires transformers>=4.53.0, but you have transformers 4.51.3 which is incompatible.
+```
+
+**Impact:** ✅ **Warning only** - live-vlm-webui installs and runs correctly despite this message.
+
+**Cause:** This is a pre-existing issue with your `mlx-vlm` installation. Our package doesn't use or depend on `transformers`, so the conflict is between `mlx-vlm` and another package in your environment.
+
+**Solution (optional):** If you want to resolve the warning:
+```bash
+# Upgrade transformers to satisfy mlx-vlm's requirement
+pip install --upgrade transformers>=4.53.0
+```
+
+**Note:** You can safely ignore this warning - it doesn't affect live-vlm-webui functionality.
+
+---
+
 ### pip: command not found (Jetson)
 
 **Issue:** On Jetson, running `pip install` shows:
