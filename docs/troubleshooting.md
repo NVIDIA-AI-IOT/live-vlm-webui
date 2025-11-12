@@ -397,6 +397,8 @@ For production use, get a proper SSL certificate from Let's Encrypt or a certifi
 
 ## VLM Backend Issues
 
+> 📖 **Reference:** For a complete list of available Vision-Language Models across different providers, see [List of VLMs](usage/list-of-vlms.md).
+
 ### Ollama GPU error on Jetson Thor (r38.2 / JetPack 7.0)
 
 **Issue:** On some Thor systems, Ollama fails to load models with:
@@ -520,6 +522,7 @@ ollama run gemma3:4b "test"
 - For Ollama: `ollama list` to see available models
 - For vLLM: Check startup logs for loaded model name
 - Click "🔄 Refresh" in the UI to re-detect models
+- See [List of VLMs](usage/list-of-vlms.md) for correct model names by provider
 
 ### VLM output is non-relevant or generic (hallucinating)
 
@@ -535,15 +538,17 @@ The text-only model doesn't actually see the image - it's just generating plausi
 
 **Solution:** Use a **vision-capable** model:
 
+> 📖 **See also:** [Complete List of Vision-Language Models](usage/list-of-vlms.md) - Comprehensive guide to all available VLMs across Ollama, NVIDIA, OpenAI, and Anthropic.
+
 **✅ Correct Models (Vision):**
 - `llama3.2-vision:11b` (Ollama)
 - `llama3.2-vision:90b` (Ollama)
-- `llava:7b`, `llava:13b`, `llava:34b` (Ollama)
+- `llava:7b`, `llava:13b` (Ollama) - ⚠️ Note: `llava:34b` is text-only
 - `moondream:latest` (Ollama)
 - `phi3.5-vision` (vLLM/HuggingFace)
 - `microsoft/phi-3-vision-128k-instruct` (NVIDIA API Catalog)
 - `meta/llama-3.2-90b-vision-instruct` (NVIDIA API Catalog)
-- `gpt-4o`, `gpt-4-vision-preview` (OpenAI)
+- `gpt-5`, `gpt-4o`, `gpt-4-vision-preview` (OpenAI)
 
 **❌ Incorrect Models (Text-Only - Will Hallucinate):**
 - `llama3.1:8b` ❌ (no vision)
@@ -587,7 +592,7 @@ ollama pull llama3.2-vision:11b
 
 **Solutions:**
 - Use a smaller/faster model:
-  - Try `llava:7b` instead of `llava:34b`
+  - Try `llava:7b` instead of `llava:13b`
   - Try `phi-3-vision` (4B parameters)
 - Increase `Frame Processing Interval` to process fewer frames
 - Reduce `Max Tokens` in settings (e.g., 50-100 instead of 512)

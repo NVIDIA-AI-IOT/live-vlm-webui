@@ -289,6 +289,8 @@ pip install -e .
 
 Choose the VLM backend that fits your needs:
 
+> 📖 **Looking for specific models?** See the complete [List of Vision-Language Models](./docs/usage/list-of-vlms.md) across all providers.
+
 ### Quick Comparison
 
 | Backend | Setup Difficulty | Model Coverage | GPU Required |
@@ -449,6 +451,7 @@ Includes:
 
 ### For Users
 - 📖 [VLM Backend Setup](./docs/setup/vlm-backends.md) - Detailed guide for Ollama, vLLM, SGLang, NVIDIA API
+- 🤖 [List of Vision-Language Models](./docs/usage/list-of-vlms.md) - Comprehensive catalog of VLMs across Ollama, NVIDIA, OpenAI, Anthropic
 - 🐋 [Docker Compose Details](./docs/setup/docker-compose-details.md) - Complete stack setup with Ollama or NIM
 - 🛠️ [Docker Deployment Guide](./docs/setup/docker.md) - Complete Docker setup and troubleshooting
 - ⚙️ [Advanced Configuration](./docs/usage/advanced-configuration.md) - Performance tuning, custom prompts, API compatibility

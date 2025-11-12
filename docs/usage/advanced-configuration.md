@@ -93,8 +93,11 @@ Choose based on your hardware and needs:
 - `llava:13b`
 
 **High quality** (requires significant GPU memory):
-- `llava:34b`
+- `llama-3.2-90b-vision-instruct` (Ollama/NVIDIA)
+- `qwen2.5vl:32b` (Ollama)
 - `gpt-4-vision-preview` (via OpenAI API)
+
+> ⚠️ **Note:** `llava:34b` is text-only and does not support vision despite smaller llava models having vision capabilities.
 
 ### Video Resolution
 
@@ -263,4 +266,3 @@ Edit CSS variables in `index.html` to customize colors:
     /* ... more variables */
 }
 ```
-
