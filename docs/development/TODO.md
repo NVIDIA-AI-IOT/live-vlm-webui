@@ -89,6 +89,44 @@ All blocking items for v0.1.0 have been completed:
 
 ### Features & Enhancements
 
+- [x] **RTSP IP Camera Support** (Feature - HIGH VALUE) ✅ **COMPLETED in feature/rtsp-camera-support**
+  - **Status**: Core functionality implemented, ready for testing
+  - **What it does**: Process video from RTSP-compatible IP cameras instead of just webcams
+  - **Use cases**:
+    - Home safety monitoring (pool drowning detection, elder care fall detection)
+    - Security surveillance with AI analysis
+    - Pet/baby monitoring
+    - Retail customer counting
+    - Warehouse safety monitoring
+    - Use Jetson/PC as dedicated edge AI surveillance appliance
+  - **Implementation**:
+    - ✅ `RTSPVideoTrack` class for RTSP stream ingestion with auto-reconnection
+    - ✅ Backend endpoints: `/api/rtsp/start`, `/api/rtsp/stop`, `/api/rtsp/status`
+    - ✅ Frontend UI: Input source selector (Webcam vs RTSP)
+    - ✅ RTSP URL input with connection testing
+    - ✅ Error handling and user-friendly messages
+    - ✅ Comprehensive documentation with examples
+  - **Documentation**: `docs/usage/rtsp-ip-cameras.md`
+  - **Components modified**:
+    - `src/live_vlm_webui/rtsp_track.py` (new)
+    - `src/live_vlm_webui/server.py` (RTSP endpoints added)
+    - `src/live_vlm_webui/static/index.html` (UI controls added)
+  - **Known limitations**:
+    - Single stream per session (multi-stream planned for future)
+    - No video preview in UI (backend processing only)
+    - CPU-based decode (hardware acceleration planned)
+  - **Next steps**:
+    - [ ] Unit tests for RTSPVideoTrack
+    - [ ] Real IP camera testing (Reolink, Hikvision, etc.)
+    - [ ] Performance benchmarking
+    - [ ] Multi-stream support (future)
+    - [ ] Video preview in UI via server-sent events (future)
+    - [ ] Hardware-accelerated decode with NVDEC on Jetson (future)
+  - **Branch**: `feature/rtsp-camera-support`
+  - **Target release**: v0.2.0
+  - Priority: High (multiple user requests, compelling use cases)
+  - Effort: ~2-3 weeks (completed in initial implementation)
+
 - [ ] **Markdown rendering in VLM output** (UI/UX - MEDIUM PRIORITY)
   - **Current state**: VLM responses display as plain text, raw markdown shown
   - **Issue**: Many VLMs output markdown formatting (bold, lists, code blocks, tables, etc.)

@@ -38,6 +38,7 @@ from aiortc.contrib.media import MediaRelay
 from .vlm_service import VLMService
 from .video_processor import VideoProcessorTrack
 from .gpu_monitor import create_monitor
+from .rtsp_track import RTSPVideoTrack
 
 # Configure logging
 logging.basicConfig(
@@ -52,6 +53,7 @@ vlm_service = None
 websockets = set()  # Track active WebSocket connections
 gpu_monitor = None  # GPU monitoring instance
 gpu_monitor_task = None  # Background task for GPU monitoring
+rtsp_tracks = {}  # Track active RTSP streams {session_id: (rtsp_track, processor_track)}
 
 
 def is_port_available(port, host="0.0.0.0"):
@@ -522,6 +524,159 @@ async def offer(request):
     )
 
 
+async def rtsp_start(request):
+    """
+    Start RTSP stream processing.
+
+    Accepts RTSP URL and creates a video processing pipeline.
+
+    POST /api/rtsp/start
+    Body: {"rtsp_url": "rtsp://...", "session_id": "optional-id"}
+    """
+    try:
+        data = await request.json()
+        rtsp_url = data.get("rtsp_url")
+        session_id = data.get("session_id", "default")
+
+        if not rtsp_url:
+            logger.warning("RTSP start request missing rtsp_url")
+            return web.Response(
+                status=400,
+                content_type="application/json",
+                text=json.dumps({"error": "Missing rtsp_url parameter"}),
+            )
+
+        # Check if session already exists
+        if session_id in rtsp_tracks:
+            logger.warning(f"RTSP session {session_id} already exists, stopping it first")
+            await _stop_rtsp_session(session_id)
+
+        logger.info(f"Starting RTSP stream for session {session_id}")
+
+        # Create RTSP video track
+        try:
+            rtsp_track = RTSPVideoTrack(rtsp_url)
+        except Exception as e:
+            logger.error(f"Failed to create RTSP track: {e}")
+            return web.Response(
+                status=500,
+                content_type="application/json",
+                text=json.dumps({"error": f"Failed to connect to RTSP stream: {str(e)}"}),
+            )
+
+        # Create processor track (same as WebRTC path)
+        processor_track = VideoProcessorTrack(
+            rtsp_track, vlm_service, text_callback=broadcast_text_update
+        )
+
+        # Store reference
+        rtsp_tracks[session_id] = (rtsp_track, processor_track)
+
+        # Get stream stats
+        stats = rtsp_track.get_stats()
+
+        logger.info(
+            f"RTSP stream started: {session_id} - {stats.get('codec')} "
+            f"{stats.get('width')}x{stats.get('height')}"
+        )
+
+        return web.Response(
+            content_type="application/json",
+            text=json.dumps({"status": "started", "session_id": session_id, "stream_info": stats}),
+        )
+
+    except Exception as e:
+        logger.error(f"Error starting RTSP: {e}", exc_info=True)
+        return web.Response(
+            status=500, content_type="application/json", text=json.dumps({"error": str(e)})
+        )
+
+
+async def rtsp_stop(request):
+    """
+    Stop RTSP stream processing.
+
+    POST /api/rtsp/stop
+    Body: {"session_id": "optional-id"}
+    """
+    try:
+        data = await request.json()
+        session_id = data.get("session_id", "default")
+
+        await _stop_rtsp_session(session_id)
+
+        return web.Response(
+            content_type="application/json",
+            text=json.dumps({"status": "stopped", "session_id": session_id}),
+        )
+
+    except Exception as e:
+        logger.error(f"Error stopping RTSP: {e}", exc_info=True)
+        return web.Response(
+            status=500, content_type="application/json", text=json.dumps({"error": str(e)})
+        )
+
+
+async def rtsp_status(request):
+    """
+    Get status of all RTSP streams.
+
+    GET /api/rtsp/status
+    """
+    try:
+        status_list = []
+
+        for session_id, (rtsp_track, processor_track) in rtsp_tracks.items():
+            stats = rtsp_track.get_stats()
+            status_list.append(
+                {
+                    "session_id": session_id,
+                    "connected": stats.get("connected"),
+                    "frames_received": stats.get("frames_received"),
+                    "stream_info": {
+                        "codec": stats.get("codec"),
+                        "width": stats.get("width"),
+                        "height": stats.get("height"),
+                        "fps": stats.get("fps"),
+                    },
+                }
+            )
+
+        return web.Response(
+            content_type="application/json",
+            text=json.dumps({"active_streams": len(rtsp_tracks), "streams": status_list}),
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting RTSP status: {e}", exc_info=True)
+        return web.Response(
+            status=500, content_type="application/json", text=json.dumps({"error": str(e)})
+        )
+
+
+async def _stop_rtsp_session(session_id: str):
+    """Helper function to stop an RTSP session"""
+    if session_id in rtsp_tracks:
+        rtsp_track, processor_track = rtsp_tracks[session_id]
+
+        # Stop tracks
+        try:
+            processor_track.stop()
+        except Exception as e:
+            logger.warning(f"Error stopping processor track: {e}")
+
+        try:
+            rtsp_track.stop()
+        except Exception as e:
+            logger.warning(f"Error stopping RTSP track: {e}")
+
+        # Remove from tracking
+        del rtsp_tracks[session_id]
+        logger.info(f"RTSP stream stopped: {session_id}")
+    else:
+        logger.warning(f"RTSP session {session_id} not found")
+
+
 async def on_startup(app):
     """Initialize resources on server startup"""
     global gpu_monitor, gpu_monitor_task
@@ -565,6 +720,11 @@ async def on_shutdown(app):
         await ws.close()
     websockets.clear()
 
+    # Close all RTSP streams
+    for session_id in list(rtsp_tracks.keys()):
+        await _stop_rtsp_session(session_id)
+    logger.info("RTSP streams closed")
+
     # Close all peer connections
     coros = [pc.close() for pc in pcs]
     await asyncio.gather(*coros)
@@ -590,6 +750,11 @@ async def create_app(test_mode=False):
     app.router.add_get("/detect-services", detect_services)
     app.router.add_get("/ws", websocket_handler)
     app.router.add_post("/offer", offer)
+
+    # RTSP endpoints
+    app.router.add_post("/api/rtsp/start", rtsp_start)
+    app.router.add_post("/api/rtsp/stop", rtsp_stop)
+    app.router.add_get("/api/rtsp/status", rtsp_status)
 
     # Serve static files (images, etc.)
     # Always serve from static/images within the package (works for both pip and dev installs)

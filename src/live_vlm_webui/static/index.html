@@ -1531,11 +1531,42 @@ limitations under the License.
                 </div>
                 <div class="panel-content" id="cameraConfig">
                     <div class="form-group">
-                        <label>Camera Selection</label>
-                        <select id="cameraSelect">
-                            <option value="">Detecting cameras...</option>
+                        <label>Input Source</label>
+                        <select id="inputSource">
+                            <option value="webcam">Webcam (Browser Camera)</option>
+                            <option value="rtsp">RTSP Stream (IP Camera)</option>
                         </select>
-                        <div class="input-hint">Select camera device to use for VLM analysis</div>
+                        <div class="input-hint">Select video input source type</div>
+                    </div>
+
+                    <!-- Webcam Controls -->
+                    <div id="webcamControls">
+                        <div class="form-group">
+                            <label>Camera Selection</label>
+                            <select id="cameraSelect">
+                                <option value="">Detecting cameras...</option>
+                            </select>
+                            <div class="input-hint">Select camera device to use for VLM analysis</div>
+                        </div>
+                    </div>
+
+                    <!-- RTSP Controls -->
+                    <div id="rtspControls" style="display: none;">
+                        <div class="form-group">
+                            <label>RTSP Stream URL</label>
+                            <input type="text" id="rtspUrl" placeholder="rtsp://192.168.1.100:554/stream">
+                            <div class="input-hint">
+                                Format: rtsp://[user:pass@]ip:port/path<br>
+                                Example: rtsp://admin:password@192.168.1.100:554/stream1
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <button class="btn btn-secondary" id="testRtspBtn" style="width: 100%;">
+                                <i data-lucide="activity" style="width: 14px; height: 14px; margin-right: 4px;"></i>
+                                Test Connection
+                            </button>
+                            <div id="rtspStatus" class="input-hint" style="margin-top: 8px; display: none;"></div>
+                        </div>
                     </div>
                     <div class="form-group">
                         <button class="btn btn-primary" id="startBtn" style="width: 100%; margin-bottom: 8px;">
@@ -1737,6 +1768,7 @@ limitations under the License.
         let lastText = '';
         let isAnalysisRunning = false;
         let selectedCameraId = null;
+        let rtspSessionId = 'default';  // For RTSP mode
 
         // Enumerate and list available cameras
         async function enumerateCameras() {
@@ -1826,6 +1858,82 @@ limitations under the License.
                 setTimeout(() => {
                     cameraSelect.classList.remove('applied');
                 }, 600);
+            }
+        });
+
+        // Handle input source change (Webcam vs RTSP)
+        document.getElementById('inputSource').addEventListener('change', (e) => {
+            const source = e.target.value;
+            const webcamControls = document.getElementById('webcamControls');
+            const rtspControls = document.getElementById('rtspControls');
+            const startBtn = document.getElementById('startBtn');
+
+            if (source === 'webcam') {
+                webcamControls.style.display = 'block';
+                rtspControls.style.display = 'none';
+                startBtn.innerHTML = '<i data-lucide="play" style="width: 14px; height: 14px; margin-right: 4px;"></i>Open Camera and<br>Start VLM Analysis';
+                lucide.createIcons();
+            } else if (source === 'rtsp') {
+                webcamControls.style.display = 'none';
+                rtspControls.style.display = 'block';
+                startBtn.innerHTML = '<i data-lucide="play" style="width: 14px; height: 14px; margin-right: 4px;"></i>Connect to Stream and<br>Start VLM Analysis';
+                lucide.createIcons();
+            }
+        });
+
+        // Test RTSP connection
+        document.getElementById('testRtspBtn').addEventListener('click', async () => {
+            const rtspUrl = document.getElementById('rtspUrl').value.trim();
+            const statusDiv = document.getElementById('rtspStatus');
+            const testBtn = document.getElementById('testRtspBtn');
+
+            if (!rtspUrl) {
+                statusDiv.textContent = '⚠️ Please enter an RTSP URL';
+                statusDiv.style.display = 'block';
+                statusDiv.style.color = '#ff6b35';
+                return;
+            }
+
+            testBtn.disabled = true;
+            statusDiv.textContent = '🔄 Testing connection...';
+            statusDiv.style.display = 'block';
+            statusDiv.style.color = '#76b900';
+
+            try {
+                const response = await fetch('/api/rtsp/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        rtsp_url: rtspUrl,
+                        session_id: 'test-' + Date.now()
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    const info = data.stream_info;
+                    statusDiv.innerHTML = `✅ Connected!<br>${info.codec} ${info.width}x${info.height} @${info.fps}fps`;
+                    statusDiv.style.color = '#76b900';
+
+                    // Stop the test connection after 2 seconds
+                    setTimeout(async () => {
+                        await fetch('/api/rtsp/stop', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ session_id: data.session_id })
+                        });
+                    }, 2000);
+                } else {
+                    statusDiv.textContent = '❌ ' + (data.error || 'Connection failed');
+                    statusDiv.style.color = '#ff6b35';
+                }
+            } catch (err) {
+                console.error('RTSP test error:', err);
+                statusDiv.textContent = '❌ Connection failed: ' + err.message;
+                statusDiv.style.color = '#ff6b35';
+            } finally {
+                testBtn.disabled = false;
             }
         });
 
@@ -2850,8 +2958,19 @@ limitations under the License.
             };
         }
 
-        // Start WebRTC
+        // Start - dispatch to webcam or RTSP based on input source
         async function start() {
+            const inputSource = document.getElementById('inputSource').value;
+
+            if (inputSource === 'webcam') {
+                await startWebcam();
+            } else if (inputSource === 'rtsp') {
+                await startRTSP();
+            }
+        }
+
+        // Start WebRTC (Webcam mode)
+        async function startWebcam() {
             try {
                 if (!websocket || websocket.readyState !== WebSocket.OPEN) {
                     connectWebSocket();
@@ -2930,19 +3049,71 @@ limitations under the License.
                 updateStatus('Streaming', 'connected');
 
             } catch (error) {
-                console.error('Error starting connection:', error);
+                console.error('Error starting webcam:', error);
                 updateStatus(`Error: ${error.message}`, 'disconnected');
                 stop();
             }
         }
 
-        // Stop WebRTC
-        function stop() {
+        // Start RTSP mode
+        async function startRTSP() {
+            try {
+                if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+                    connectWebSocket();
+                }
+
+                const rtspUrl = document.getElementById('rtspUrl').value.trim();
+
+                if (!rtspUrl) {
+                    alert('Please enter an RTSP URL');
+                    return;
+                }
+
+                updateStatus('Connecting to RTSP stream...', 'processing');
+
+                const response = await fetch('/api/rtsp/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        rtsp_url: rtspUrl,
+                        session_id: rtspSessionId
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    const info = data.stream_info;
+                    console.log('RTSP stream started:', info);
+
+                    startBtn.disabled = true;
+                    stopBtn.disabled = false;
+                    isAnalysisRunning = true;
+                    updateStatus(`RTSP Connected (${info.codec} ${info.width}x${info.height})`, 'connected');
+
+                    // Note: Video element won't show RTSP stream (backend processing only)
+                    // In future, could add server-sent frame display
+                } else {
+                    const errorMsg = data.error || 'Connection failed';
+                    alert('Failed to start RTSP stream: ' + errorMsg);
+                    updateStatus('Error: ' + errorMsg, 'disconnected');
+                }
+
+            } catch (error) {
+                console.error('Error starting RTSP:', error);
+                updateStatus(`Error: ${error.message}`, 'disconnected');
+                alert('Failed to connect to RTSP stream: ' + error.message);
+            }
+        }
+
+        // Stop (handles both webcam and RTSP)
+        async function stop() {
             if (fadeTimeout) {
                 clearTimeout(fadeTimeout);
                 fadeTimeout = null;
             }
 
+            // Stop webcam
             if (localStream) {
                 localStream.getTracks().forEach(track => track.stop());
                 localStream = null;
@@ -2951,6 +3122,21 @@ limitations under the License.
             if (peerConnection) {
                 peerConnection.close();
                 peerConnection = null;
+            }
+
+            // Stop RTSP
+            const inputSource = document.getElementById('inputSource').value;
+            if (inputSource === 'rtsp') {
+                try {
+                    await fetch('/api/rtsp/stop', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ session_id: rtspSessionId })
+                    });
+                    console.log('RTSP stream stopped');
+                } catch (error) {
+                    console.error('Error stopping RTSP:', error);
+                }
             }
 
             videoElement.srcObject = null;
