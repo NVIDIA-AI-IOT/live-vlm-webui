@@ -312,6 +312,7 @@ class NVMLMonitor(GPUMonitor):
         self.handle = None
         self.available = False
         self.error_logged = False  # Track if we've already logged an error
+        self.reinit_attempted = False  # Track if we've tried reinitialization
         self.consecutive_errors = 0  # Count consecutive errors
         self.stats_call_count = 0  # Track total number of stats calls (for startup grace period)
 
@@ -439,6 +440,28 @@ class NVMLMonitor(GPUMonitor):
 
         except Exception as e:
             self.consecutive_errors += 1
+
+            # Try to recover from "Unknown Error" on first error (threading issue on WSL2)
+            if not self.reinit_attempted and (
+                "Unknown Error" in str(e) or "NVMLError_Unknown" in str(type(e).__name__)
+            ):
+                self.reinit_attempted = True
+                try:
+                    logger.warning("Attempting to reinitialize NVML handle (WSL2 threading fix)...")
+                    import pynvml
+
+                    # Reinitialize in the current thread context
+                    pynvml.nvmlShutdown()
+                    pynvml.nvmlInit()
+                    self.handle = pynvml.nvmlDeviceGetHandleByIndex(self.device_index)
+                    logger.info(
+                        "NVML handle reinitialized successfully - GPU monitoring should work now"
+                    )
+                    # Reset error counter to give it a fresh chance
+                    self.consecutive_errors = 0
+                    return self._get_fallback_stats()
+                except Exception as reinit_error:
+                    logger.error(f"Failed to reinitialize NVML: {reinit_error}")
 
             # Only log error once, or every 60 seconds (60 calls at 1Hz)
             if not self.error_logged:
