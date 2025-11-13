@@ -66,11 +66,14 @@ live-vlm-webui
 git clone https://github.com/nvidia-ai-iot/live-vlm-webui.git
 cd live-vlm-webui
 
-# Run the auto-detection script
+# Run the auto-detection script (interactive mode)
 ./scripts/start_container.sh
+
+# Or specify a version
+./scripts/start_container.sh --version 0.2.0
 ```
 
-The script auto-detects your platform and starts the appropriate Docker container.
+The script auto-detects your platform, lets you choose a version, and starts the appropriate Docker container.
 
 **Access the WebUI:** Open **`https://localhost:8090`** in your browser
 
@@ -358,6 +361,12 @@ cd live-vlm-webui
 
 # 2. Run the auto-detection script
 ./scripts/start_container.sh
+
+# Or specify a version
+./scripts/start_container.sh --version 0.2.0
+
+# List available versions
+./scripts/start_container.sh --list-versions
 ```
 
 **Benefits:**
@@ -365,17 +374,27 @@ cd live-vlm-webui
 - ✅ Isolated environment
 - ✅ Works across all platforms (x86_64, ARM64, Jetson)
 - ✅ Production-ready
+- ✅ Version pinning support
+
+**Version Selection:**
+
+The script supports multiple ways to select a version:
+- **Interactive mode**: Shows available versions and lets you pick (default)
+- **Specific version**: `--version 0.2.0` to pin to a specific release
+- **Latest version**: `--version latest` or `--skip-version-pick` for newest
+- **List versions**: `--list-versions` to see all available tags
 
 **Available pre-built images:**
 
-| Platform | Image Tag | Pull Command |
-|----------|-----------|--------------|
-| **PC (x86_64) / DGX Spark** | `latest` | `docker pull ghcr.io/nvidia-ai-iot/live-vlm-webui:latest` |
-| **Jetson Orin** | `latest-jetson-orin` | `docker pull ghcr.io/nvidia-ai-iot/live-vlm-webui:latest-jetson-orin` |
-| **Jetson Thor** | `latest-jetson-thor` | `docker pull ghcr.io/nvidia-ai-iot/live-vlm-webui:latest-jetson-thor` |
+| Platform | Latest Tag | Versioned Tag Example |
+|----------|------------|----------------------|
+| **PC (x86_64) / DGX Spark** | `latest` | `0.2.0` |
+| **Jetson Orin** | `latest-jetson-orin` | `0.2.0-jetson-orin` |
+| **Jetson Thor** | `latest-jetson-thor` | `0.2.0-jetson-thor` |
+| **macOS (testing)** | `latest-mac` | `0.2.0-mac` |
 
 > [!TIP]
-> The `latest` tag is a **multi-arch image** that automatically selects the correct architecture:
+> The base tags (`latest`, `0.2.0`) are **multi-arch images** that automatically select the correct architecture:
 > - `linux/amd64` for x86_64 PC and DGX systems
 > - `linux/arm64` for DGX Spark (ARM64 SBSA server)
 

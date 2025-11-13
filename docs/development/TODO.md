@@ -50,24 +50,25 @@ All blocking items for v0.1.0 have been completed:
 
 ### Release Process Improvements
 
-- [ ] **Add versioned Docker image tags via git tags**
-  - **Issue**: Currently only `latest` Docker tags exist for v0.1.0
-  - **Improvement**: Create git tags for releases to trigger versioned builds
-  - **Action** (for v0.1.1):
+- ✅ **Add versioned Docker image tags via git tags** (`191a95a`, `ea8b857`)
+  - **Completed**: Interactive version selection with `--version`, `--list-versions`, `--skip-version-pick` flags
+  - **Hybrid fetching**: GHCR API (authenticated) → Releases API (public) → Fallback list
+  - **Public API support**: Works without GITHUB_TOKEN (60 req/hour via Releases API)
+  - **Testing**: `--simulate-public` flag to test unauthenticated experience
+  - **Benefit**: Users can select specific versions interactively or via CLI flags
+  - **Note**: Supports both X.Y and X.Y.Z version formats (e.g., `0.1`, `0.1.1`)
+  - **Usage**:
     ```bash
-    git tag v0.1.1
-    git push origin v0.1.1
+    ./scripts/start_container.sh                    # Interactive picker
+    ./scripts/start_container.sh --version 0.1.1    # Specific version
+    ./scripts/start_container.sh --list-versions    # Show all versions
+    ./scripts/start_container.sh --simulate-public  # Test public API
     ```
-  - **Benefit**: Users can pin to specific Docker versions (e.g., `v0.1.1`)
-  - **Note**: Workflow already configured with `type=semver` patterns
-  - **Priority**: Medium - Good practice for production deployments
-  - **For v0.1.0**: Can retroactively tag if needed, but not critical
 
-- [ ] **Document release process for future releases**
-  - Create step-by-step guide in `docs/development/RELEASING.md`
-  - Include: version bump, changelog, git tag, GitHub release, PyPI upload, Docker verification
+- ✅ **Document release process for future releases** (`191a95a`)
+  - Created `docs/development/RELEASING.md` with step-by-step guide
+  - Includes: version bump, changelog, git tag, GitHub release, PyPI upload, Docker verification
   - Standard operating procedure for maintainers
-  - Priority: Medium
 
 ---
 
@@ -155,6 +156,21 @@ All blocking items for v0.1.0 have been completed:
     - Fallback to plain text if markdown parsing fails
   - Priority: Medium (nice quality-of-life improvement, enhances VLM output usability)
   - Effort: ~4-6 hours (add library, implement rendering, styling, testing)
+
+- [ ] **Honor OS/environment dark/light mode preference** (UI/UX - MEDIUM PRIORITY)
+  - **Current state**: UI uses a fixed dark theme
+  - **Goal**: Automatically detect and respect OS-level dark/light mode preference
+  - **Implementation**:
+    - Use CSS `prefers-color-scheme` media query
+    - Detect system preference via JavaScript (`window.matchMedia`)
+    - Support dynamic theme switching when OS preference changes
+    - Optional: Add manual theme toggle override in settings
+  - **Benefits**:
+    - Better UX for users with light mode preference
+    - Respects accessibility settings
+    - Modern web app best practice
+  - Priority: Medium
+  - Effort: ~2-4 hours (CSS variables, theme switching logic, testing)
 
 - [ ] **Jetson GPU stats without jtop dependency** (Platform Support - HIGH PRIORITY)
   - **Current issue**: jtop (jetson-stats) requirement complicates pip wheel installation
