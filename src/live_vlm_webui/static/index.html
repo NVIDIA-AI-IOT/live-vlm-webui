@@ -592,6 +592,92 @@ limitations under the License.
             margin-top: 4px;
         }
 
+        /* Input Source Tabs */
+        .input-source-tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: 16px;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        .input-source-tab {
+            flex: 1;
+            padding: 10px 16px;
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-muted);
+            transition: all 0.2s;
+        }
+
+        .input-source-tab:hover {
+            color: var(--text-primary);
+            background: rgba(118, 185, 0, 0.05);
+        }
+
+        .input-source-tab.active {
+            color: var(--accent-color);
+            border-bottom-color: var(--accent-color);
+        }
+
+        /* Tooltip */
+        .tooltip-wrapper {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .tooltip-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--border-color);
+            color: var(--text-muted);
+            font-size: 11px;
+            cursor: help;
+            transition: all 0.2s;
+        }
+
+        .tooltip-icon:hover {
+            background: var(--accent-color);
+            color: white;
+        }
+
+        .tooltip-text {
+            visibility: hidden;
+            opacity: 0;
+            position: absolute;
+            left: 0;
+            top: 100%;
+            margin-top: 8px;
+            padding: 8px 12px;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 11px;
+            line-height: 1.5;
+            color: var(--text-primary);
+            white-space: normal;
+            min-width: 280px;
+            max-width: 320px;
+            z-index: 1000;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            transition: opacity 0.2s, visibility 0.2s;
+        }
+
+        .tooltip-wrapper:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+        }
+
         /* Main Content */
         .main-content {
             flex: 1;
@@ -1530,13 +1616,16 @@ limitations under the License.
                     <span class="panel-toggle" id="cameraConfigToggle">▼</span>
                 </div>
                 <div class="panel-content" id="cameraConfig">
-                    <div class="form-group">
-                        <label>Input Source</label>
-                        <select id="inputSource">
-                            <option value="webcam">Webcam (Browser Camera)</option>
-                            <option value="rtsp">RTSP Stream (IP Camera)</option>
-                        </select>
-                        <div class="input-hint">Select video input source type</div>
+                    <!-- Input Source Tabs -->
+                    <div class="input-source-tabs">
+                        <button class="input-source-tab active" data-source="webcam">
+                            <i data-lucide="video" style="width: 14px; height: 14px; margin-right: 4px;"></i>
+                            Webcam
+                        </button>
+                        <button class="input-source-tab" data-source="rtsp">
+                            <i data-lucide="cast" style="width: 14px; height: 14px; margin-right: 4px;"></i>
+                            RTSP Stream
+                        </button>
                     </div>
 
                     <!-- Webcam Controls -->
@@ -1553,12 +1642,17 @@ limitations under the License.
                     <!-- RTSP Controls -->
                     <div id="rtspControls" style="display: none;">
                         <div class="form-group">
-                            <label>RTSP Stream URL</label>
-                            <input type="text" id="rtspUrl" placeholder="rtsp://192.168.1.100:554/stream">
-                            <div class="input-hint">
-                                Format: rtsp://[user:pass@]ip:port/path<br>
-                                Example: rtsp://admin:password@192.168.1.100:554/stream1
+                            <div class="tooltip-wrapper">
+                                <label>RTSP Stream URL</label>
+                                <span class="tooltip-icon">ℹ</span>
+                                <div class="tooltip-text">
+                                    <strong>Format:</strong> rtsp://[user:pass@]ip:port/path<br><br>
+                                    <strong>Examples:</strong><br>
+                                    • rtsp://192.168.1.100:554/stream<br>
+                                    • rtsp://admin:password@192.168.1.100:554/h264Preview_01_main
+                                </div>
                             </div>
+                            <input type="text" id="rtspUrl" placeholder="rtsp://192.168.1.100:554/stream">
                         </div>
                         <div class="form-group">
                             <button class="btn btn-secondary" id="testRtspBtn" style="width: 100%;">
@@ -1861,24 +1955,31 @@ limitations under the License.
             }
         });
 
-        // Handle input source change (Webcam vs RTSP)
-        document.getElementById('inputSource').addEventListener('change', (e) => {
-            const source = e.target.value;
-            const webcamControls = document.getElementById('webcamControls');
-            const rtspControls = document.getElementById('rtspControls');
-            const startBtn = document.getElementById('startBtn');
+        // Handle input source tabs (Webcam vs RTSP)
+        document.querySelectorAll('.input-source-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                const source = tab.getAttribute('data-source');
+                const webcamControls = document.getElementById('webcamControls');
+                const rtspControls = document.getElementById('rtspControls');
+                const startBtn = document.getElementById('startBtn');
 
-            if (source === 'webcam') {
-                webcamControls.style.display = 'block';
-                rtspControls.style.display = 'none';
-                startBtn.innerHTML = '<i data-lucide="play" style="width: 14px; height: 14px; margin-right: 4px;"></i>Open Camera and<br>Start VLM Analysis';
-                lucide.createIcons();
-            } else if (source === 'rtsp') {
-                webcamControls.style.display = 'none';
-                rtspControls.style.display = 'block';
-                startBtn.innerHTML = '<i data-lucide="play" style="width: 14px; height: 14px; margin-right: 4px;"></i>Connect to Stream and<br>Start VLM Analysis';
-                lucide.createIcons();
-            }
+                // Update active tab
+                document.querySelectorAll('.input-source-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+
+                // Show/hide controls
+                if (source === 'webcam') {
+                    webcamControls.style.display = 'block';
+                    rtspControls.style.display = 'none';
+                    startBtn.innerHTML = '<i data-lucide="play" style="width: 14px; height: 14px; margin-right: 4px;"></i>Open Camera and<br>Start VLM Analysis';
+                    lucide.createIcons();
+                } else if (source === 'rtsp') {
+                    webcamControls.style.display = 'none';
+                    rtspControls.style.display = 'block';
+                    startBtn.innerHTML = '<i data-lucide="play" style="width: 14px; height: 14px; margin-right: 4px;"></i>Connect to Stream and<br>Start VLM Analysis';
+                    lucide.createIcons();
+                }
+            });
         });
 
         // Test RTSP connection
@@ -2958,9 +3059,10 @@ limitations under the License.
             };
         }
 
-        // Start - dispatch to webcam or RTSP based on input source
+        // Start - dispatch to webcam or RTSP based on active tab
         async function start() {
-            const inputSource = document.getElementById('inputSource').value;
+            const activeTab = document.querySelector('.input-source-tab.active');
+            const inputSource = activeTab ? activeTab.getAttribute('data-source') : 'webcam';
 
             if (inputSource === 'webcam') {
                 await startWebcam();
@@ -3125,7 +3227,8 @@ limitations under the License.
             }
 
             // Stop RTSP
-            const inputSource = document.getElementById('inputSource').value;
+            const activeTab = document.querySelector('.input-source-tab.active');
+            const inputSource = activeTab ? activeTab.getAttribute('data-source') : 'webcam';
             if (inputSource === 'rtsp') {
                 try {
                     await fetch('/api/rtsp/stop', {

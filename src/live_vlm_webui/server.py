@@ -569,8 +569,27 @@ async def rtsp_start(request):
             rtsp_track, vlm_service, text_callback=broadcast_text_update
         )
 
-        # Store reference
-        rtsp_tracks[session_id] = (rtsp_track, processor_track)
+        # Start background task to consume frames
+        async def consume_frames():
+            """Background task to continuously pull frames from processor track"""
+            try:
+                while not rtsp_track._stopped:
+                    try:
+                        _ = await processor_track.recv()
+                        # Frame is processed, just discard it (VLM analysis happens in recv())
+                    except StopAsyncIteration:
+                        logger.info(f"RTSP stream {session_id} ended")
+                        break
+                    except Exception as e:
+                        logger.error(f"Error consuming RTSP frame for {session_id}: {e}")
+                        break
+            finally:
+                logger.info(f"Frame consumption stopped for {session_id}")
+
+        frame_task = asyncio.create_task(consume_frames())
+
+        # Store reference with frame task
+        rtsp_tracks[session_id] = (rtsp_track, processor_track, frame_task)
 
         # Get stream stats
         stats = rtsp_track.get_stats()
@@ -626,7 +645,7 @@ async def rtsp_status(request):
     try:
         status_list = []
 
-        for session_id, (rtsp_track, processor_track) in rtsp_tracks.items():
+        for session_id, (rtsp_track, processor_track, frame_task) in rtsp_tracks.items():
             stats = rtsp_track.get_stats()
             status_list.append(
                 {
@@ -657,7 +676,15 @@ async def rtsp_status(request):
 async def _stop_rtsp_session(session_id: str):
     """Helper function to stop an RTSP session"""
     if session_id in rtsp_tracks:
-        rtsp_track, processor_track = rtsp_tracks[session_id]
+        rtsp_track, processor_track, frame_task = rtsp_tracks[session_id]
+
+        # Cancel frame consumption task
+        if frame_task and not frame_task.done():
+            frame_task.cancel()
+            try:
+                await frame_task
+            except asyncio.CancelledError:
+                pass
 
         # Stop tracks
         try:
