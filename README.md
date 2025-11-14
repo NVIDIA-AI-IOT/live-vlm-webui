@@ -5,7 +5,7 @@
 [![CI/CD](https://github.com/NVIDIA-AI-IOT/live-vlm-webui/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/NVIDIA-AI-IOT/live-vlm-webui/actions/workflows/docker-publish.yml)
 [![GitHub issues](https://img.shields.io/github/issues/nvidia-ai-iot/live-vlm-webui)](https://github.com/nvidia-ai-iot/live-vlm-webui/issues)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/nvidia-ai-iot/live-vlm-webui/blob/main/LICENSE)
-[![Docker Pulls](https://img.shields.io/docker/pulls/nvidia/live-vlm-webui?logo=docker)](https://github.com/nvidia-ai-iot/live-vlm-webui/pkgs/container/live-vlm-webui)
+[![GHCR Image Tags](https://ghcr-badge.egpl.dev/nvidia-ai-iot/live-vlm-webui/tags)](https://github.com/nvidia-ai-iot/live-vlm-webui/pkgs/container/live-vlm-webui)
 
 **A universal web interface for real-time Vision Language Model interaction and benchmarking.**
 
