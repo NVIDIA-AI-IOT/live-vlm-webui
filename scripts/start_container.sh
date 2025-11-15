@@ -96,16 +96,56 @@ fetch_versions_from_ghcr() {
     # Use GitHub Packages API (requires read:packages scope)
     local api_url="https://api.github.com/orgs/${repo_owner}/packages/container/${repo_name}/versions"
 
-    if command -v curl &> /dev/null && command -v jq &> /dev/null; then
-        local response=$(curl -s -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github.v3+json" "${api_url}" 2>/dev/null)
-
-        # Check if successful
-        if ! echo "$response" | grep -q '"message"'; then
-            # Extract tags from metadata
-            echo "$response" | jq -r '.[].metadata.container.tags[]?' 2>/dev/null | grep -v '^null$' | sort -V -r | uniq
-            return 0
-        fi
+    if ! command -v curl &> /dev/null || ! command -v jq &> /dev/null; then
+        return 1
     fi
+
+    if [ -z "$GITHUB_TOKEN" ]; then
+        return 1
+    fi
+
+    local response=""
+    local http_code=""
+
+    # Fetch with HTTP status code and timeout (10 seconds should be enough)
+    # Use --max-time to prevent hanging on slow networks
+    response=$(curl -s --max-time 10 -w "\n%{http_code}" -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github.v3+json" "${api_url}" 2>/dev/null)
+
+    # Extract HTTP status code (last line)
+    http_code=$(echo "$response" | tail -n1)
+    response=$(echo "$response" | sed '$d')
+
+    # Check HTTP status
+    if [ "$http_code" != "200" ]; then
+        # Check if it's a rate limit error (403)
+        if [ "$http_code" = "403" ] && echo "$response" | grep -qi "rate limit"; then
+            return 2  # Special return code for rate limit
+        fi
+        return 1
+    fi
+
+    # Check if response contains error message
+    if echo "$response" | grep -qi '"message"'; then
+        # Check if it's a rate limit message
+        if echo "$response" | grep -qi "rate limit"; then
+            return 2
+        fi
+        return 1
+    fi
+
+    # Check if response is valid JSON array (starts with [)
+    if ! echo "$response" | grep -q '^\['; then
+        return 1
+    fi
+
+    # Extract tags from metadata
+    local parsed=$(echo "$response" | jq -r '.[].metadata.container.tags[]?' 2>/dev/null | grep -v '^null$' | sort -V -r | uniq)
+
+    if [ -n "$parsed" ]; then
+        echo "$parsed"
+        return 0
+    fi
+
     return 1
 }
 
@@ -118,58 +158,134 @@ fetch_versions_from_releases() {
     # Rate limits: 60/hour without auth, 5000/hour with GITHUB_TOKEN
     local api_url="https://api.github.com/repos/${repo_owner}/${repo_name}/releases"
 
-    if command -v curl &> /dev/null; then
-        local response=""
+    if ! command -v curl &> /dev/null; then
+        return 1
+    fi
 
-        # Use GITHUB_TOKEN if available for higher rate limits (but don't require it)
-        if [ -n "$GITHUB_TOKEN" ] && [ "$SIMULATE_PUBLIC" != "true" ]; then
-            response=$(curl -s -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github.v3+json" "${api_url}" 2>/dev/null)
-        else
-            # Public API - works without auth (60 requests/hour limit)
-            response=$(curl -s -H "Accept: application/vnd.github.v3+json" "${api_url}" 2>/dev/null)
+    local response=""
+    local http_code=""
+
+    # Use GITHUB_TOKEN if available for higher rate limits (but don't require it)
+    # Add timeout to prevent hanging (10 seconds)
+    if [ -n "$GITHUB_TOKEN" ] && [ "$SIMULATE_PUBLIC" != "true" ]; then
+        response=$(curl -s --max-time 10 -w "\n%{http_code}" -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github.v3+json" "${api_url}" 2>/dev/null)
+    else
+        # Public API - works without auth (60 requests/hour limit)
+        response=$(curl -s --max-time 10 -w "\n%{http_code}" -H "Accept: application/vnd.github.v3+json" "${api_url}" 2>/dev/null)
+    fi
+
+    # Extract HTTP status code (last line)
+    http_code=$(echo "$response" | tail -n1)
+    response=$(echo "$response" | sed '$d')
+
+    # Check HTTP status
+    if [ "$http_code" != "200" ]; then
+        # Check if it's a rate limit error (403)
+        if [ "$http_code" = "403" ] && echo "$response" | grep -qi "rate limit"; then
+            return 2  # Special return code for rate limit
         fi
+        return 1
+    fi
 
-        # Check if we hit rate limit
-        if echo "$response" | grep -q '"message.*rate limit"'; then
-            return 1
-        fi
+    # Check if we hit rate limit in response body
+    if echo "$response" | grep -qi '"message.*rate limit"'; then
+        return 2  # Special return code for rate limit
+    fi
 
-        if [ -n "$response" ]; then
+    if [ -n "$response" ]; then
+        # Check if response is valid JSON array (starts with [)
+        if echo "$response" | grep -q '^\['; then
             if command -v jq &> /dev/null; then
                 # Parse with jq - extract tag_name and remove 'v' prefix
-                echo "$response" | jq -r '.[].tag_name' 2>/dev/null | sed 's/^v//' | sort -V -r | uniq
+                local parsed=$(echo "$response" | jq -r '.[].tag_name' 2>/dev/null | sed 's/^v//' | sort -V -r | uniq)
+                if [ -n "$parsed" ]; then
+                    echo "$parsed"
+                    return 0
+                fi
             else
                 # Parse manually without jq
-                echo "$response" | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4 | sed 's/^v//' | sort -V -r | uniq
+                local parsed=$(echo "$response" | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4 | sed 's/^v//' | sort -V -r | uniq)
+                if [ -n "$parsed" ]; then
+                    echo "$parsed"
+                    return 0
+                fi
             fi
         fi
     fi
+
+    return 1
 }
 
 # Hybrid version fetcher: Try GHCR first, fall back to Releases API
 fetch_available_versions() {
     local versions=""
     local source=""
+    local rate_limited=false
+    local ghcr_versions=""  # Store GHCR versions if they only contain latest/main (to merge with Releases)
 
     # Try GHCR API first if GITHUB_TOKEN is available (and not simulating public)
     if [ -n "$GITHUB_TOKEN" ] && [ "$SIMULATE_PUBLIC" != "true" ]; then
-        versions=$(fetch_versions_from_ghcr)
-        if [ -n "$versions" ]; then
-            source="ghcr"
-            echo "$versions"
-            return 0
+        # Use a temp file to capture both output and return code
+        local temp_file=$(mktemp)
+        fetch_versions_from_ghcr > "$temp_file" 2>&1
+        local ghcr_result=$?
+        versions=$(cat "$temp_file")
+        rm -f "$temp_file"
+
+        if [ "$ghcr_result" = "2" ]; then
+            # Rate limited
+            rate_limited=true
+        elif [ "$ghcr_result" = "0" ] && [ -n "$versions" ]; then
+            # Check if versions look valid (not error messages)
+            # Reject if it looks like an error message (contains "message", "error", "403", etc.)
+            if echo "$versions" | grep -qiE '(message|error|403|401|unauthorized|bad credentials)'; then
+                # This is an error message, not versions
+                versions=""
+            elif echo "$versions" | grep -qE '(latest|main|[0-9])'; then
+                # Check if GHCR has numbered versions WITHOUT platform suffixes (base versions like "0.2.1")
+                # If it only has latest/main or platform-specific versions, we should fall back to Releases API
+                # for base numbered versions (which we can then construct into platform-specific tags)
+                if echo "$versions" | grep -qE '^[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
+                    # GHCR has base numbered versions (without platform suffix), use it
+                    source="ghcr"
+                    echo "$versions"
+                    return 0
+                fi
+                # GHCR only has latest/main or platform-specific versions, save it and merge with Releases API results
+                ghcr_versions="$versions"
+            fi
         fi
     fi
 
     # Fall back to public Releases API
-    versions=$(fetch_versions_from_releases)
-    if [ -n "$versions" ]; then
-        source="releases"
+    # Use a temp file to capture both output and check for errors
+    local temp_file=$(mktemp)
+    fetch_versions_from_releases > "$temp_file" 2>&1
+    local fetch_result=$?
+    versions=$(cat "$temp_file")
+    rm -f "$temp_file"
+
+    # Check if response contains rate limit message
+    if echo "$versions" | grep -qi "rate limit"; then
+        rate_limited=true
+    elif [ "$fetch_result" = "0" ] && [ -n "$versions" ] && ! echo "$versions" | grep -qi "error\|message"; then
+        # Merge GHCR versions (latest/main) with Releases API versions (numbered) if GHCR had versions
+        if [ -n "$ghcr_versions" ]; then
+            # Combine: GHCR versions (latest/main) + Releases versions (numbered)
+            versions=$(echo -e "$ghcr_versions\n$versions" | sort -V -r | uniq)
+            source="ghcr+releases"
+        else
+            source="releases"
+        fi
         echo "$versions"
         return 0
     fi
 
-    # Both failed
+    # Both failed - return special code if rate limited
+    if [ "$rate_limited" = true ]; then
+        return 2
+    fi
+
     return 1
 }
 
@@ -296,21 +412,119 @@ pick_version() {
     # Filter versions by platform
     local filtered_versions=""
     if [ -n "$platform_suffix" ]; then
-        # Get platform-specific versions
-        filtered_versions=$(echo "$versions" | grep -E "^[0-9]+\.[0-9]+(\.[0-9]+)?${platform_suffix}$|^latest${platform_suffix}$" | head -10)
-        # Also add base versions if it's not a platform-specific suffix
-        if [ "$platform_suffix" = "" ]; then
-            local base_versions=$(echo "$versions" | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?$|^latest$' | head -10)
-            filtered_versions="${base_versions}"
+        # Escape the platform suffix for regex and use -- to prevent - from being interpreted as option
+        local escaped_suffix=$(echo "$platform_suffix" | sed 's/[[\.*^$()+?{|]/\\&/g')
+
+        # First, try to get platform-specific versions directly (from GHCR API)
+        # Pattern matches: latest-PLATFORM, main-PLATFORM, X.Y-PLATFORM, X.Y.Z-PLATFORM
+        local platform_specific=$(echo "$versions" | grep -E -- "${escaped_suffix}\$" | sort -V -r)
+        # Exclude main-* versions but keep latest-* and numbered versions (X.Y or X.Y.Z)
+        platform_specific=$(echo "$platform_specific" | grep -vE -- '^main' | head -20)
+
+        # Get base versions (numbered versions, exclude main/latest) - always check this
+        # This handles the Releases API case where we get "0.2.1", "0.2.0", etc.
+        local base_versions=$(echo "$versions" | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?$' | sort -V -r | head -20)
+
+        # Check if we have numbered platform-specific versions (not just latest)
+        local has_numbered_platform=$(echo "$platform_specific" | grep -E -- '^[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1)
+
+        # Strategy: Always prefer constructing from base versions if available (more reliable)
+        # Only use platform_specific if it has numbered versions AND we don't have base versions
+        if [ -n "$base_versions" ]; then
+            # Construct platform-specific tags from base versions (Releases API case)
+            filtered_versions=$(echo "$base_versions" | while read -r version; do
+                echo "${version}${platform_suffix}"
+            done)
+            # Always add latest-PLATFORM at the beginning if it exists
+            if echo "$platform_specific" | grep -qE '^latest'; then
+                # latest exists in platform_specific, prepend it
+                filtered_versions="latest${platform_suffix}"$'\n'"${filtered_versions}"
+            elif echo "$versions" | grep -qE '^latest$'; then
+                # Construct latest from base versions, prepend it
+                filtered_versions="latest${platform_suffix}"$'\n'"${filtered_versions}"
+            fi
+        elif [ -n "$has_numbered_platform" ]; then
+            # We have numbered platform-specific versions from GHCR, use them
+            filtered_versions="$platform_specific"
+        elif [ -n "$platform_specific" ]; then
+            # Only have platform_specific (like latest-jetson-orin) but no base versions
+            filtered_versions="$platform_specific"
+        elif echo "$versions" | grep -qE '^latest$'; then
+            # Only have latest in base versions, construct it
+            filtered_versions="latest${platform_suffix}"
+        fi
+
+        # If still no versions, try a more permissive pattern
+        if [ -z "$filtered_versions" ]; then
+            filtered_versions=$(echo "$versions" | grep -E -- ".*${escaped_suffix}" | sort -V -r | head -15)
         fi
     else
         filtered_versions=$(echo "$versions" | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?$|^latest$' | head -10)
     fi
 
     if [ -z "$filtered_versions" ]; then
-        echo -e "${YELLOW}⚠️  Could not fetch versions from registry${NC}" >&2
-        echo -e "${YELLOW}   Showing common versions${NC}" >&2
-        echo "" >&2
+        # Check if it was a rate limit issue by testing the APIs directly
+        local test_response=""
+        local test_ghcr_response=""
+
+        # Test GHCR API if token is available
+        if [ -n "$GITHUB_TOKEN" ] && [ "$SIMULATE_PUBLIC" != "true" ]; then
+            test_ghcr_response=$(curl -s --max-time 5 -w "\n%{http_code}" -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/orgs/nvidia-ai-iot/packages/container/live-vlm-webui/versions" 2>/dev/null)
+            test_response=$(curl -s --max-time 5 -H "Authorization: Bearer ${GITHUB_TOKEN}" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/nvidia-ai-iot/live-vlm-webui/releases" 2>/dev/null)
+        else
+            test_response=$(curl -s --max-time 5 -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/nvidia-ai-iot/live-vlm-webui/releases" 2>/dev/null)
+        fi
+
+        # Check GHCR response
+        if [ -n "$test_ghcr_response" ]; then
+            local ghcr_http_code=$(echo "$test_ghcr_response" | tail -n1)
+            local ghcr_body=$(echo "$test_ghcr_response" | sed '$d')
+            if [ "$ghcr_http_code" = "403" ] || echo "$ghcr_body" | grep -qi "rate limit"; then
+                echo -e "${RED}⚠️  GitHub API rate limit exceeded${NC}" >&2
+                echo -e "${YELLOW}   Even with GITHUB_TOKEN, rate limit reached${NC}" >&2
+                echo "" >&2
+            elif [ "$ghcr_http_code" = "401" ] || echo "$ghcr_body" | grep -qi "bad credentials\|unauthorized"; then
+                echo -e "${YELLOW}⚠️  GitHub token authentication failed${NC}" >&2
+                echo -e "${YELLOW}   Token may need 'read:packages' scope for GHCR access${NC}" >&2
+                echo "" >&2
+            fi
+        fi
+
+        if echo "$test_response" | grep -qi "rate limit"; then
+            echo -e "${RED}⚠️  GitHub API rate limit exceeded${NC}" >&2
+            echo -e "${YELLOW}   Unauthenticated requests: 60/hour limit reached${NC}" >&2
+            echo "" >&2
+            echo -e "${BLUE}💡 Solutions:${NC}" >&2
+            echo -e "${GREEN}   1. Use --skip-version-pick to use 'latest' automatically:${NC}" >&2
+            echo -e "      ${GREEN}./scripts/start_container.sh --skip-version-pick${NC}" >&2
+            echo "" >&2
+            echo -e "${GREEN}   2. Set GITHUB_TOKEN for higher rate limits (5000/hour):${NC}" >&2
+            echo -e "      ${GREEN}export GITHUB_TOKEN=ghp_xxxxxxxxxxxxx${NC}" >&2
+            echo -e "      ${GREEN}./scripts/start_container.sh${NC}" >&2
+            echo "" >&2
+            echo -e "${GREEN}   3. Wait ~1 hour for rate limit to reset${NC}" >&2
+            echo "" >&2
+        else
+            echo -e "${YELLOW}⚠️  Could not fetch versions from registry${NC}" >&2
+            echo -e "${YELLOW}   Showing common versions${NC}" >&2
+            echo "" >&2
+
+            # Provide troubleshooting tips
+            if ! command -v curl &> /dev/null; then
+                echo -e "${RED}   ✗ curl is not installed${NC}" >&2
+                echo -e "${YELLOW}   Install with: sudo apt install -y curl${NC}" >&2
+            elif ! command -v jq &> /dev/null; then
+                echo -e "${YELLOW}   ℹ️  jq not installed (optional, but helpful for better parsing)${NC}" >&2
+                echo -e "${YELLOW}   Install with: sudo apt install -y jq${NC}" >&2
+            fi
+
+            # Test network connectivity
+            if ! curl -s --max-time 5 https://api.github.com > /dev/null 2>&1; then
+                echo -e "${RED}   ✗ Cannot reach GitHub API (network issue?)${NC}" >&2
+            fi
+
+            echo "" >&2
+        fi
 
         # Show default list
         filtered_versions="latest"$'\n'"0.1.1"$'\n'"0.1.0"
@@ -374,31 +588,362 @@ echo ""
 # ==============================================================================
 echo -e "${YELLOW}🔍 Checking Docker installation...${NC}"
 
-if ! command -v docker &> /dev/null; then
+# Enable tracing to debug hangs (set DEBUG=1 to enable)
+if [ "${DEBUG:-0}" = "1" ]; then
+    set -x
+fi
+
+# Check for Docker using multiple methods (more robust)
+# Check common locations FIRST (most reliable, works even if PATH is broken)
+# Use timeouts to prevent hanging on slow filesystems or network mounts
+DOCKER_CMD=""
+
+# Method 1: Check common locations directly (fastest, most reliable)
+# Try to actually execute docker --version instead of just checking [ -x ]
+# This handles cases where the file exists but execve() fails (network mounts, FUSE issues)
+# Add retry logic for intermittent filesystem issues
+for docker_path in /usr/bin/docker /usr/local/bin/docker /snap/bin/docker; do
+    # Retry up to 3 times with small delays to handle intermittent filesystem issues
+    max_retries=3
+    retry_count=0
+    docker_test_result=1
+
+    while [ "$retry_count" -lt "$max_retries" ] && [ "$docker_test_result" -ne 0 ]; do
+        set +e  # Temporarily disable exit on error
+        if command -v timeout &> /dev/null 2>&1; then
+            # Try to actually execute docker --version (with timeout to prevent hanging)
+            # This is more reliable than [ -x ] which can pass even when execve() fails
+            docker_test_output=$(timeout 2 "$docker_path" --version 2>&1)
+            docker_test_result=$?
+        else
+            docker_test_output=$("$docker_path" --version 2>&1)
+            docker_test_result=$?
+        fi
+        set -e  # Re-enable exit on error
+
+        # If docker --version succeeded, we found a working Docker
+        if [ "$docker_test_result" -eq 0 ] && [ -n "$docker_test_output" ]; then
+            DOCKER_CMD="$docker_path"
+            break 2  # Break out of both loops
+        fi
+
+        # If not the last retry, wait a bit before retrying
+        if [ "$retry_count" -lt $((max_retries - 1)) ]; then
+            sleep 0.1  # Small delay (100ms) before retry
+        fi
+        retry_count=$((retry_count + 1))
+    done
+
+    # If we found Docker, break out of the outer loop
+    if [ -n "$DOCKER_CMD" ]; then
+        break
+    fi
+done
+
+# Method 1b: Check snap installation more thoroughly
+if [ -z "$DOCKER_CMD" ] && command -v snap &> /dev/null 2>&1; then
+    # Check if docker snap is installed
+    if snap list docker &> /dev/null 2>&1; then
+        # Try to find docker in snap directories by actually executing it
+        for snap_docker in /snap/docker/current/bin/docker /snap/bin/docker; do
+            set +e  # Temporarily disable exit on error
+            if command -v timeout &> /dev/null 2>&1; then
+                docker_test_output=$(timeout 2 "$snap_docker" --version 2>&1)
+                docker_test_result=$?
+            else
+                docker_test_output=$("$snap_docker" --version 2>&1)
+                docker_test_result=$?
+            fi
+            set -e  # Re-enable exit on error
+
+            if [ "$docker_test_result" -eq 0 ] && [ -n "$docker_test_output" ]; then
+                DOCKER_CMD="$snap_docker"
+                break
+            fi
+        done
+    fi
+fi
+
+# Method 2: Try command -v (works if PATH is correct, but can hang)
+if [ -z "$DOCKER_CMD" ]; then
+    if command -v timeout &> /dev/null 2>&1; then
+        found_path=$(timeout 2 command -v docker 2>/dev/null || true)
+    else
+        # No timeout - try but risk hanging
+        found_path=$(command -v docker 2>/dev/null || true)
+    fi
+    # Verify the path actually exists and is executable
+    if [ -n "$found_path" ] && [ -x "$found_path" ] 2>/dev/null; then
+        DOCKER_CMD="$found_path"
+    fi
+fi
+
+# Method 3: Try which (less reliable, can also hang)
+if [ -z "$DOCKER_CMD" ] && command -v which &> /dev/null 2>&1; then
+    if command -v timeout &> /dev/null 2>&1; then
+        found_path=$(timeout 2 which docker 2>/dev/null || true)
+    else
+        found_path=$(which docker 2>/dev/null || true)
+    fi
+    # Verify the path actually exists and is executable
+    if [ -n "$found_path" ] && [ -x "$found_path" ] 2>/dev/null; then
+        DOCKER_CMD="$found_path"
+    fi
+fi
+
+# Method 4: Search PATH directories manually (last resort, can be slow)
+if [ -z "$DOCKER_CMD" ] && [ -n "$PATH" ]; then
+    IFS=':' read -ra PATH_DIRS <<< "$PATH"
+    for dir in "${PATH_DIRS[@]}"; do
+        # Skip empty or problematic directories
+        if [ -z "$dir" ] || [ "$dir" = "." ]; then
+            continue
+        fi
+        # Check with timeout if available
+        if command -v timeout &> /dev/null 2>&1; then
+            if timeout 1 test -x "$dir/docker" 2>/dev/null; then
+                DOCKER_CMD="$dir/docker"
+                break
+            fi
+        else
+            if test -x "$dir/docker" 2>/dev/null; then
+                DOCKER_CMD="$dir/docker"
+                break
+            fi
+        fi
+    done
+fi
+
+# Final verification: Try to actually execute docker --version to ensure it works
+# This catches cases where the file exists but is broken, on a broken mount, etc.
+if [ -n "$DOCKER_CMD" ]; then
+    set +e  # Temporarily disable exit on error for verification
+    if command -v timeout &> /dev/null 2>&1; then
+        # Try with timeout to prevent hanging
+        docker_version_output=$(timeout 3 "$DOCKER_CMD" --version 2>&1)
+        docker_verify_result=$?
+    else
+        docker_version_output=$("$DOCKER_CMD" --version 2>&1)
+        docker_verify_result=$?
+    fi
+    set -e  # Re-enable exit on error
+
+    # If docker --version failed, the path is invalid (broken symlink, mount issue, etc.)
+    if [ "$docker_verify_result" -ne 0 ] || [ -z "$docker_version_output" ]; then
+        # Clear DOCKER_CMD and let it fall through to "not found" error
+        DOCKER_CMD=""
+    fi
+fi
+
+if [ -z "$DOCKER_CMD" ]; then
     echo -e "${RED}❌ Docker not found!${NC}"
     echo ""
     echo -e "${YELLOW}Docker is required to run this application.${NC}"
     echo ""
-    echo -e "Install Docker:"
-    echo -e "  Linux:   ${BLUE}https://docs.docker.com/engine/install/${NC}"
-    echo -e "  Mac:     ${BLUE}https://docs.docker.com/desktop/install/mac-install/${NC}"
-    echo -e "  Windows: ${BLUE}https://docs.docker.com/desktop/install/windows-install/${NC}"
+
+    # Check if running on Jetson with JetPack 6 (R36) or JetPack 7 (R38+)
+    # When using SDK Manager, Docker and NVIDIA Container Toolkit are not automatically installed
+    IS_JETSON_R36=false
+    IS_JETSON_R38=false
+
+    if [ -f /etc/nv_tegra_release ]; then
+        L4T_VERSION=$(head -n 1 /etc/nv_tegra_release | grep -oP 'R\K[0-9]+' 2>/dev/null || echo "")
+        # Check if L4T_VERSION is numeric
+        if [ -n "$L4T_VERSION" ] && [[ "$L4T_VERSION" =~ ^[0-9]+$ ]]; then
+            if [ "$L4T_VERSION" -ge 36 ] && [ "$L4T_VERSION" -lt 38 ]; then
+                IS_JETSON_R36=true
+            elif [ "$L4T_VERSION" -ge 38 ]; then
+                IS_JETSON_R38=true
+            fi
+        fi
+    fi
+
+    if [ "$IS_JETSON_R36" = true ] || [ "$IS_JETSON_R38" = true ]; then
+        if [ "$IS_JETSON_R36" = true ]; then
+            echo -e "${YELLOW}Detected Jetson Orin with JetPack 6 (L4T R${L4T_VERSION})${NC}"
+        else
+            echo -e "${YELLOW}Detected Jetson Thor with JetPack 7 (L4T R${L4T_VERSION})${NC}"
+        fi
+        echo -e "${YELLOW}When using SDK Manager, Docker and NVIDIA Container Toolkit are not automatically installed.${NC}"
+        echo ""
+        echo -e "${GREEN}Install Docker and NVIDIA Container Toolkit:${NC}"
+        echo ""
+        echo -e "${YELLOW}# If you encounter apt lock errors, resolve them first:${NC}"
+        echo -e "${GREEN}sudo killall apt apt-get 2>/dev/null || true${NC}"
+        echo -e "${GREEN}sudo rm /var/lib/apt/lists/lock /var/cache/apt/archives/lock /var/lib/dpkg/lock* 2>/dev/null || true${NC}"
+        echo -e "${GREEN}sudo dpkg --configure -a${NC}"
+        echo ""
+        echo -e "${BLUE}# Install NVIDIA Container Toolkit and Docker${NC}"
+        echo -e "${GREEN}sudo apt update${NC}"
+        echo -e "${GREEN}sudo apt install -y nvidia-container curl${NC}"
+        echo -e "${GREEN}curl https://get.docker.com | sh && sudo systemctl --now enable docker${NC}"
+        echo ""
+        echo -e "${BLUE}# Initialize Docker daemon.json if it doesn't exist or is empty${NC}"
+        echo -e "${GREEN}if [ ! -s /etc/docker/daemon.json ]; then${NC}"
+        echo -e "${GREEN}    echo '{}' | sudo tee /etc/docker/daemon.json${NC}"
+        echo -e "${GREEN}fi${NC}"
+        echo ""
+        echo -e "${BLUE}# Configure NVIDIA Container Toolkit runtime${NC}"
+        echo -e "${GREEN}sudo nvidia-ctk runtime configure --runtime=docker${NC}"
+        echo ""
+        echo -e "${BLUE}# Restart Docker and add user to docker group${NC}"
+        echo -e "${GREEN}sudo systemctl restart docker${NC}"
+        echo -e "${GREEN}sudo usermod -aG docker \$USER${NC}"
+        echo -e "${GREEN}newgrp docker${NC}"
+        echo ""
+        echo -e "${BLUE}# Configure Docker to use NVIDIA runtime by default${NC}"
+        echo -e "${GREEN}sudo apt install -y jq${NC}"
+        echo -e "${GREEN}sudo jq '. + {\"default-runtime\": \"nvidia\"}' /etc/docker/daemon.json > /tmp/daemon.json.tmp && sudo mv /tmp/daemon.json.tmp /etc/docker/daemon.json${NC}"
+        echo ""
+        echo -e "${BLUE}# Restart Docker service${NC}"
+        echo -e "${GREEN}sudo systemctl daemon-reload && sudo systemctl restart docker${NC}"
+        echo ""
+        echo -e "${YELLOW}Reference: ${BLUE}https://www.jetson-ai-lab.com/tips_ssd-docker.html#docker${NC}"
+        echo ""
+        echo -e "${YELLOW}⚠️  IMPORTANT: After completing the installation, reboot your Jetson:${NC}"
+        echo -e "${GREEN}sudo reboot${NC}"
+        echo ""
+        echo -e "${YELLOW}This ensures Docker and NVIDIA Container Toolkit are properly initialized.${NC}"
+    else
+        echo -e "Install Docker:"
+        echo -e "  Linux:   ${BLUE}https://docs.docker.com/engine/install/${NC}"
+        echo -e "  Mac:     ${BLUE}https://docs.docker.com/desktop/install/mac-install/${NC}"
+        echo -e "  Windows: ${BLUE}https://docs.docker.com/desktop/install/windows-install/${NC}"
+    fi
     echo ""
     exit 1
 fi
 
-# Check if Docker daemon is running
-if ! docker info &> /dev/null; then
-    echo -e "${RED}❌ Docker daemon is not running!${NC}"
-    echo ""
-    echo -e "${YELLOW}Start Docker:${NC}"
-    echo -e "  Linux:   ${GREEN}sudo systemctl start docker${NC}"
-    echo -e "  Mac/Win: ${GREEN}Open Docker Desktop${NC}"
-    echo ""
+# Check if Docker daemon is running FIRST (before trying to connect)
+DOCKER_DAEMON_RUNNING=false
+if systemctl is-active --quiet docker 2>/dev/null; then
+    DOCKER_DAEMON_RUNNING=true
+elif pgrep -x dockerd > /dev/null 2>&1; then
+    DOCKER_DAEMON_RUNNING=true
+elif pgrep -f "docker daemon" > /dev/null 2>&1; then
+    DOCKER_DAEMON_RUNNING=true
+fi
+
+# Check if Docker daemon is accessible
+# Temporarily disable set -e for error handling (we'll check the result manually)
+# Add retry logic for intermittent filesystem issues (same as Docker detection)
+DOCKER_ERROR=""
+docker_check_result=1
+max_daemon_retries=3
+daemon_retry_count=0
+
+set +e  # Disable exit on error temporarily
+while [ "$daemon_retry_count" -lt "$max_daemon_retries" ] && [ "$docker_check_result" -ne 0 ]; do
+    # Use timeout to prevent hanging (5 seconds should be enough)
+    if command -v timeout &> /dev/null 2>&1; then
+        # Use timeout to prevent hanging
+        timeout 5 "$DOCKER_CMD" info &> /dev/null 2>&1
+        docker_check_result=$?
+        if [ "$docker_check_result" -ne 0 ]; then
+            DOCKER_ERROR=$(timeout 5 "$DOCKER_CMD" info 2>&1 || echo "timeout or error")
+        else
+            # Docker is working, continue
+            DOCKER_ERROR=""
+            break  # Success, exit retry loop
+        fi
+    else
+        # No timeout command available, try without timeout
+        "$DOCKER_CMD" info &> /dev/null 2>&1
+        docker_check_result=$?
+        if [ "$docker_check_result" -ne 0 ]; then
+            DOCKER_ERROR=$("$DOCKER_CMD" info 2>&1 || echo "error")
+        else
+            # Docker is working, continue
+            DOCKER_ERROR=""
+            break  # Success, exit retry loop
+        fi
+    fi
+
+    # If not the last retry, wait a bit before retrying
+    if [ "$daemon_retry_count" -lt $((max_daemon_retries - 1)) ]; then
+        sleep 0.2  # Small delay (200ms) before retry
+    fi
+    daemon_retry_count=$((daemon_retry_count + 1))
+done
+set -e  # Re-enable exit on error
+
+if [ -n "$DOCKER_ERROR" ]; then
+
+    # Check if it's a permission issue
+    if echo "$DOCKER_ERROR" | grep -qi "permission denied\|cannot connect"; then
+        echo -e "${RED}❌ Cannot connect to Docker daemon!${NC}"
+        echo ""
+        echo -e "${YELLOW}This is likely a permissions issue.${NC}"
+        echo ""
+
+        # Check if user is already in docker group
+        if groups | grep -q docker; then
+            echo -e "${YELLOW}⚠️  You are in the docker group, but Docker still can't connect.${NC}"
+            echo ""
+
+            # Use the daemon running check we did earlier
+            if [ "$DOCKER_DAEMON_RUNNING" = true ]; then
+                echo -e "${YELLOW}Docker daemon appears to be running.${NC}"
+                echo ""
+                echo -e "${BLUE}Possible issues:${NC}"
+                echo -e "${YELLOW}  1. Socket permissions may be wrong${NC}"
+                echo -e "${GREEN}     Check: ls -l /var/run/docker.sock${NC}"
+                echo ""
+                echo -e "${YELLOW}  2. Try running Docker directly:${NC}"
+                echo -e "${GREEN}     $DOCKER_CMD ps${NC}"
+                echo ""
+                echo -e "${YELLOW}  3. Check Docker socket permissions:${NC}"
+                echo -e "${GREEN}     sudo chown root:docker /var/run/docker.sock${NC}"
+                echo -e "${GREEN}     sudo chmod 660 /var/run/docker.sock${NC}"
+                echo ""
+                echo -e "${YELLOW}  4. Verify your group membership is active:${NC}"
+                echo -e "${GREEN}     id -nG${NC}"
+                echo -e "${GREEN}     (should show 'docker' in the list)${NC}"
+            else
+                echo -e "${RED}Docker daemon is not running!${NC}"
+                echo ""
+                echo -e "${BLUE}Start Docker daemon:${NC}"
+                echo -e "${GREEN}sudo systemctl start docker${NC}"
+                echo ""
+                echo -e "${YELLOW}Check Docker status:${NC}"
+                echo -e "${GREEN}sudo systemctl status docker${NC}"
+                echo ""
+            fi
+
+            echo -e "${BLUE}Alternative: Try activating docker group:${NC}"
+            echo -e "${GREEN}sg docker -c \"$DOCKER_CMD ps\"${NC}"
+            echo ""
+            echo -e "${YELLOW}If that works, run the script with:${NC}"
+            echo -e "${GREEN}sg docker -c \"./scripts/start_container.sh\"${NC}"
+        else
+            echo -e "${BLUE}Solution: Add your user to the docker group${NC}"
+            echo -e "${GREEN}sudo usermod -aG docker \$USER${NC}"
+            echo ""
+            echo -e "${YELLOW}Then either:${NC}"
+            echo -e "${GREEN}  1. Log out and log back in${NC}"
+            echo -e "${GREEN}  2. Or run: newgrp docker${NC}"
+            echo ""
+            echo -e "${YELLOW}Then run this script again.${NC}"
+        fi
+        echo ""
+        echo -e "${YELLOW}Alternative (not recommended): Run with sudo${NC}"
+        echo -e "${GREEN}sudo $0${NC}"
+        echo ""
+    else
+        echo -e "${RED}❌ Docker daemon is not running!${NC}"
+        echo ""
+        echo -e "${YELLOW}Start Docker:${NC}"
+        echo -e "  Linux:   ${GREEN}sudo systemctl start docker${NC}"
+        echo -e "  Mac/Win: ${GREEN}Open Docker Desktop${NC}"
+        echo ""
+        echo -e "${YELLOW}Check Docker status:${NC}"
+        echo -e "  ${GREEN}sudo systemctl status docker${NC}"
+        echo ""
+    fi
     exit 1
 fi
 
-echo -e "${GREEN}✅ Docker installed: $(docker --version)${NC}"
+echo -e "${GREEN}✅ Docker installed: $($DOCKER_CMD --version)${NC}"
 echo ""
 
 # Detect architecture and OS
@@ -453,10 +998,50 @@ elif [ "$ARCH" = "x86_64" ]; then
 
 elif [ "$ARCH" = "aarch64" ]; then
     # Check if it's a Jetson (has L4T)
-    if [ -f /etc/nv_tegra_release ]; then
-        # Read L4T version
-        L4T_VERSION=$(head -n 1 /etc/nv_tegra_release | grep -oP 'R\K[0-9]+')
+    L4T_VERSION=""
+    if [ -f /etc/nv_tegra_release ] && [ -r /etc/nv_tegra_release ]; then
+        # Read L4T version - try multiple methods for robustness
+        # Method 1: grep -oP (Perl regex, most reliable)
+        L4T_VERSION=$(head -n 1 /etc/nv_tegra_release | grep -oP 'R\K[0-9]+' 2>/dev/null || echo "")
+        # Method 2: sed fallback if grep -oP fails
+        if [ -z "$L4T_VERSION" ]; then
+            L4T_VERSION=$(head -n 1 /etc/nv_tegra_release | sed -n 's/.*R\([0-9]\+\).*/\1/p' 2>/dev/null || echo "")
+        fi
+        # Method 3: grep with basic regex
+        if [ -z "$L4T_VERSION" ]; then
+            L4T_VERSION=$(head -n 1 /etc/nv_tegra_release | grep -oE 'R[0-9]+' | grep -oE '[0-9]+' | head -1 2>/dev/null || echo "")
+        fi
+    fi
 
+    # Fallback: Check for Jetson indicators if L4T file is not accessible
+    # This handles cases where MAX-N mode or other system changes affect file access
+    if [ -z "$L4T_VERSION" ]; then
+        # Check for Jetson-specific hardware indicators
+        if [ -d /sys/devices/soc0 ] && grep -q "tegra" /sys/devices/soc0/family 2>/dev/null; then
+            # It's a Jetson, but we can't read L4T version - default to Orin (most common)
+            PLATFORM="jetson-orin"
+            PLATFORM_SUFFIX="-jetson-orin"
+            RUNTIME_FLAG="--runtime nvidia"
+            echo -e "   Platform: ${GREEN}NVIDIA Jetson Orin${NC} (L4T version unavailable, detected via hardware)"
+        elif command -v nvidia-smi &> /dev/null && nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi "jetson\|orin\|thor\|xavier\|nano"; then
+            # Check GPU name for Jetson indicators
+            GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
+            if echo "$GPU_NAME" | grep -qi "thor"; then
+                PLATFORM="jetson-thor"
+                PLATFORM_SUFFIX="-jetson-thor"
+                GPU_FLAG="--gpus all"
+                echo -e "   Platform: ${GREEN}NVIDIA Jetson Thor${NC} (detected via GPU: ${GPU_NAME})"
+            else
+                PLATFORM="jetson-orin"
+                PLATFORM_SUFFIX="-jetson-orin"
+                RUNTIME_FLAG="--runtime nvidia"
+                echo -e "   Platform: ${GREEN}NVIDIA Jetson Orin${NC} (detected via GPU: ${GPU_NAME})"
+            fi
+        fi
+    fi
+
+    # If we have L4T_VERSION, use it for precise detection
+    if [ -n "$L4T_VERSION" ] && [[ "$L4T_VERSION" =~ ^[0-9]+$ ]]; then
         # Check for Thor (L4T R38+) vs Orin (L4T R36)
         if [ "$L4T_VERSION" -ge 38 ]; then
             PLATFORM="jetson-thor"
@@ -469,7 +1054,8 @@ elif [ "$ARCH" = "aarch64" ]; then
             RUNTIME_FLAG="--runtime nvidia"
             echo -e "   Platform: ${GREEN}NVIDIA Jetson Orin${NC} (L4T R${L4T_VERSION})"
         fi
-    else
+    elif [ -z "$PLATFORM" ]; then
+        # No Jetson detected, fall through to ARM64 SBSA check
         # ARM64 SBSA (DGX Spark, ARM servers)
         # Check if NVIDIA GPU is available
         if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
@@ -555,7 +1141,7 @@ IMAGE_NAME="ghcr.io/nvidia-ai-iot/live-vlm-webui:${IMAGE_TAG}"
 
 echo -e "${BLUE}🐳 Docker Image: ${GREEN}${IMAGE_NAME}${NC}"
 
-# Check if container already exists
+# Check if container already exists (by name)
 if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     echo -e "${YELLOW}⚠️  Container '${CONTAINER_NAME}' already exists${NC}"
     read -p "   Stop and remove it? (y/N): " -n 1 -r
@@ -570,40 +1156,114 @@ if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     fi
 fi
 
+# Also check for containers using the same image (might have different names)
+EXISTING_CONTAINERS=$(docker ps -a --filter "ancestor=${IMAGE_NAME}" --format "{{.Names}}" 2>/dev/null | grep -v "^${CONTAINER_NAME}$" || true)
+if [ -n "$EXISTING_CONTAINERS" ]; then
+    echo -e "${YELLOW}⚠️  Found other containers using the same image:${NC}"
+    echo "$EXISTING_CONTAINERS" | while read -r name; do
+        echo -e "   ${YELLOW}- ${name}${NC}"
+    done
+    echo ""
+    read -p "   Stop and remove them? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo "$EXISTING_CONTAINERS" | while read -r name; do
+            echo -e "${YELLOW}   Stopping ${name}...${NC}"
+            docker stop "$name" 2>/dev/null || true
+            docker rm "$name" 2>/dev/null || true
+        done
+    fi
+fi
+
 # Pull latest image from registry (optional)
 read -p "Pull latest image from registry? (y/N): " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo -e "${BLUE}📥 Pulling ${IMAGE_NAME}...${NC}"
-    docker pull ${IMAGE_NAME} || {
-        echo -e "${YELLOW}⚠️  Failed to pull from registry, will try local image${NC}"
-    }
+    set +e  # Temporarily disable exit on error for pull operation
+    docker pull ${IMAGE_NAME}
+    pull_result=$?
+    set -e  # Re-enable exit on error
+
+    if [ "$pull_result" -ne 0 ]; then
+        echo -e "${YELLOW}⚠️  Failed to pull from registry${NC}"
+
+        # Check if Docker daemon is still accessible
+        set +e
+        docker info > /dev/null 2>&1
+        daemon_check=$?
+        set -e
+
+        if [ "$daemon_check" -ne 0 ]; then
+            echo -e "${RED}❌ Docker daemon connection lost!${NC}"
+            echo ""
+            echo -e "${YELLOW}The Docker daemon may have crashed or become unresponsive during the pull.${NC}"
+            echo ""
+            echo -e "${BLUE}Try restarting Docker:${NC}"
+            echo -e "${GREEN}sudo systemctl restart docker${NC}"
+            echo ""
+            echo -e "${YELLOW}Then check Docker status:${NC}"
+            echo -e "${GREEN}sudo systemctl status docker${NC}"
+            echo ""
+            echo -e "${YELLOW}If Docker keeps crashing, check system logs:${NC}"
+            echo -e "${GREEN}sudo journalctl -u docker -n 50${NC}"
+            echo ""
+            echo -e "${YELLOW}Or check dmesg for filesystem errors:${NC}"
+            echo -e "${GREEN}dmesg | tail -20${NC}"
+            echo ""
+            exit 1
+        else
+            echo -e "${YELLOW}   Will try local image${NC}"
+        fi
+    fi
 fi
 
 # Check if image exists (registry or local)
-if ! docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "^${IMAGE_NAME}$"; then
+# Use timeout and error handling in case Docker daemon is unresponsive
+set +e
+image_check_output=$(timeout 5 docker images --format '{{.Repository}}:{{.Tag}}' 2>&1)
+image_check_result=$?
+set -e
+
+if [ "$image_check_result" -ne 0 ]; then
+    # Docker daemon check failed
+    if echo "$image_check_output" | grep -qi "cannot connect\|daemon"; then
+        echo -e "${RED}❌ Cannot connect to Docker daemon!${NC}"
+        echo ""
+        echo -e "${YELLOW}The Docker daemon may have crashed or become unresponsive.${NC}"
+        echo ""
+        echo -e "${BLUE}Try restarting Docker:${NC}"
+        echo -e "${GREEN}sudo systemctl restart docker${NC}"
+        echo ""
+        exit 1
+    fi
+    # Some other error, continue and try to check anyway
+fi
+
+if ! echo "$image_check_output" | grep -q "^${IMAGE_NAME}$"; then
     # Try common local image names with the same tag
     LOCAL_IMAGE=""
     LOCAL_TAG="live-vlm-webui:${IMAGE_TAG}"
 
-    if docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "^${LOCAL_TAG}$"; then
+    # Use the already-fetched image list if available, otherwise fetch again with timeout
+    if echo "$image_check_output" | grep -q "^${LOCAL_TAG}$"; then
         LOCAL_IMAGE="$LOCAL_TAG"
     else
         # Try platform-specific fallback tags for local builds
         if [ "$PLATFORM" = "mac" ]; then
             # Check for Mac local builds
-            if docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "^live-vlm-webui:latest-mac$"; then
+            if echo "$image_check_output" | grep -q "^live-vlm-webui:latest-mac$"; then
                 LOCAL_IMAGE="live-vlm-webui:latest-mac"
             fi
         elif [ "$PLATFORM" = "arm64-sbsa" ]; then
             # Check for DGX Spark specific tags
-            if docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "^live-vlm-webui:dgx-spark$"; then
+            if echo "$image_check_output" | grep -q "^live-vlm-webui:dgx-spark$"; then
                 LOCAL_IMAGE="live-vlm-webui:dgx-spark"
-            elif docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "^live-vlm-webui:arm64$"; then
+            elif echo "$image_check_output" | grep -q "^live-vlm-webui:arm64$"; then
                 LOCAL_IMAGE="live-vlm-webui:arm64"
             fi
         elif [ "$PLATFORM" = "x86" ]; then
-            if docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "^live-vlm-webui:x86$"; then
+            if echo "$image_check_output" | grep -q "^live-vlm-webui:x86$"; then
                 LOCAL_IMAGE="live-vlm-webui:x86"
             fi
         fi
@@ -707,15 +1367,39 @@ else
 
     # Add Jetson-specific mounts
     if [[ "$PLATFORM" == "jetson-"* ]]; then
-        DOCKER_CMD="$DOCKER_CMD -v /run/jtop.sock:/run/jtop.sock:ro"
+        # Check if jtop socket exists on host before mounting
+        if [ -S /run/jtop.sock ]; then
+            DOCKER_CMD="$DOCKER_CMD -v /run/jtop.sock:/run/jtop.sock:ro"
+            echo -e "${GREEN}   ✓ jtop socket found: /run/jtop.sock${NC}"
+        else
+            echo -e "${YELLOW}   ⚠️  jtop socket not found: /run/jtop.sock${NC}"
+            echo -e "${YELLOW}      GPU monitoring may not work properly${NC}"
+            echo -e "${YELLOW}      Start jtop service: sudo systemctl start jtop${NC}"
+            echo ""
+            read -p "   Continue anyway? (y/N): " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                echo -e "${YELLOW}Aborted. Start jtop service first.${NC}"
+                exit 1
+            fi
+            # Still mount it (might be created later or container will handle gracefully)
+            DOCKER_CMD="$DOCKER_CMD -v /run/jtop.sock:/run/jtop.sock:ro"
+        fi
     fi
 
     # Add image name
     DOCKER_CMD="$DOCKER_CMD ${IMAGE_NAME}"
 fi
 
+# Show the full command before executing (for debugging)
+echo ""
+echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
+echo -e "${BLUE}🐳 Docker Run Command:${NC}"
+echo -e "${YELLOW}${DOCKER_CMD}${NC}"
+echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
+echo ""
+
 # Execute
-echo -e "${YELLOW}   Command: ${DOCKER_CMD}${NC}"
 eval $DOCKER_CMD
 
 # Wait a moment for container to start
@@ -724,6 +1408,20 @@ sleep 2
 # Check if container is running
 if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     echo -e "${GREEN}✅ Container started successfully!${NC}"
+
+    # Verify jtop socket mount for Jetson platforms
+    if [[ "$PLATFORM" == "jetson-"* ]]; then
+        echo ""
+        echo -e "${BLUE}🔍 Verifying jtop socket mount...${NC}"
+        if docker exec ${CONTAINER_NAME} test -S /run/jtop.sock 2>/dev/null; then
+            echo -e "${GREEN}   ✓ jtop socket mounted correctly in container${NC}"
+        else
+            echo -e "${YELLOW}   ⚠️  jtop socket not accessible in container${NC}"
+            echo -e "${YELLOW}      GPU monitoring may not work${NC}"
+            echo -e "${YELLOW}      Check: docker exec ${CONTAINER_NAME} ls -l /run/jtop.sock${NC}"
+        fi
+    fi
+
     echo ""
     echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
     echo -e "${GREEN}🌐 Access the Web UI at:${NC}"

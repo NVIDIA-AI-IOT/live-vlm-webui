@@ -1065,7 +1065,22 @@ class JetsonOrinMonitor(GPUMonitor):
 
     def __init__(self, history_size: int = 60):
         super().__init__(history_size)
-        self.gpu_name = "Jetson Orin"
+        # Try to get more specific GPU name from nvidia-smi
+        gpu_name_detected = "Jetson Orin"
+        try:
+            import subprocess
+
+            gpu_name_smi = subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=2,
+            ).strip()
+            if gpu_name_smi:
+                gpu_name_detected = gpu_name_smi
+        except Exception:
+            pass
+        self.gpu_name = gpu_name_detected
         self.available = False
         self.use_jtop = False
         self.jtop_instance = None
@@ -1104,16 +1119,61 @@ class JetsonOrinMonitor(GPUMonitor):
         # Use jtop for stats
         if self.use_jtop and self.jtop_instance:
             try:
+                # Check if jtop is actually connected and has data
+                if not hasattr(self.jtop_instance, "stats") or self.jtop_instance.stats is None:
+                    logger.warning("jtop stats not available - jtop may not be connected properly")
+                    raise Exception("jtop stats unavailable")
+
                 # Get stats from jtop
-                gpu_percent = self.jtop_instance.stats.get("GPU", 0)
+                gpu_percent = (
+                    self.jtop_instance.stats.get("GPU", 0)
+                    if isinstance(self.jtop_instance.stats, dict)
+                    else 0
+                )
 
                 # Get memory stats (jtop uses shared memory on Jetson)
+                if not hasattr(self.jtop_instance, "memory") or self.jtop_instance.memory is None:
+                    logger.warning("jtop memory not available")
+                    raise Exception("jtop memory unavailable")
+
                 memory = self.jtop_instance.memory
                 # Orin uses unified memory, RAM is shared with GPU
                 # jtop returns memory in KB, convert to GB (divide by 1024^2)
-                vram_used_gb = memory.get("RAM", {}).get("used", 0) / (1024 * 1024)
-                vram_total_gb = memory.get("RAM", {}).get("tot", 0) / (1024 * 1024)
+                # Handle different memory structure formats
+                if isinstance(memory, dict):
+                    ram_info = memory.get("RAM", {})
+                    if isinstance(ram_info, dict):
+                        vram_used_kb = ram_info.get("used", 0) or ram_info.get("use", 0) or 0
+                        vram_total_kb = (
+                            ram_info.get("tot", 0)
+                            or ram_info.get("total", 0)
+                            or ram_info.get("size", 0)
+                            or 0
+                        )
+                    else:
+                        # Try direct memory keys
+                        vram_used_kb = memory.get("used", 0) or memory.get("use", 0) or 0
+                        vram_total_kb = (
+                            memory.get("tot", 0)
+                            or memory.get("total", 0)
+                            or memory.get("size", 0)
+                            or 0
+                        )
+                else:
+                    logger.warning(f"Unexpected memory structure type: {type(memory)}")
+                    vram_used_kb = 0
+                    vram_total_kb = 0
+
+                vram_used_gb = vram_used_kb / (1024 * 1024) if vram_used_kb > 0 else 0
+                vram_total_gb = vram_total_kb / (1024 * 1024) if vram_total_kb > 0 else 0
                 vram_percent = (vram_used_gb / vram_total_gb * 100) if vram_total_gb > 0 else 0
+
+                # Log warning if we're getting zeros (helps debug)
+                if vram_total_gb == 0 and not hasattr(self, "_vram_warning_logged"):
+                    logger.warning(
+                        f"VRAM total is 0 - jtop memory structure: {type(memory)}, keys: {list(memory.keys()) if isinstance(memory, dict) else 'N/A'}"
+                    )
+                    self._vram_warning_logged = True
 
                 # Temperature
                 temp_c = None
@@ -1169,6 +1229,94 @@ class JetsonOrinMonitor(GPUMonitor):
                             # to "NVIDIA Jetson Orin Nano Developer Kit"
                             board_name = "NVIDIA Jetson Orin Nano Developer Kit"
 
+                # Fallback: If jtop didn't provide board_name, try to infer from GPU name or system info
+                if not board_name:
+                    # Try to get GPU name from nvidia-smi as fallback
+                    try:
+                        import subprocess
+
+                        gpu_name_smi = subprocess.check_output(
+                            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                            stderr=subprocess.DEVNULL,
+                            text=True,
+                            timeout=2,
+                        ).strip()
+
+                        # Infer board name from GPU name
+                        if "Orin Nano" in gpu_name_smi or "Orin Nano" in self.gpu_name:
+                            board_name = "NVIDIA Jetson Orin Nano Developer Kit"
+                        elif "AGX Orin" in gpu_name_smi or "AGX Orin" in self.gpu_name:
+                            board_name = "NVIDIA Jetson AGX Orin Developer Kit"
+                        elif "Orin" in gpu_name_smi or "Orin" in self.gpu_name:
+                            # Generic Orin - try to detect Nano vs AGX by checking hostname or other indicators
+                            # Orin Nano is more common, so default to that
+                            board_name = "NVIDIA Jetson Orin"
+                    except Exception:
+                        # If all else fails, use generic name based on GPU name
+                        if "Nano" in self.gpu_name:
+                            board_name = "NVIDIA Jetson Orin Nano Developer Kit"
+                        elif "AGX" in self.gpu_name:
+                            board_name = "NVIDIA Jetson AGX Orin Developer Kit"
+                        else:
+                            board_name = "NVIDIA Jetson Orin"
+
+                # If we got zeros OR if jtop stats/memory are None/empty, try fallback to nvidia-smi
+                # This handles cases where jtop connects but returns no data
+                if (
+                    vram_total_gb == 0
+                    or gpu_percent == 0
+                    or not isinstance(self.jtop_instance.stats, dict)
+                    or not isinstance(memory, dict)
+                ):
+                    logger.warning(
+                        f"jtop returned zeros or invalid data (GPU={gpu_percent}%, VRAM={vram_total_gb}GB), trying nvidia-smi fallback"
+                    )
+                    try:
+                        import subprocess
+
+                        # Try to get GPU utilization from nvidia-smi
+                        nvidia_smi_output = subprocess.check_output(
+                            [
+                                "nvidia-smi",
+                                "--query-gpu=utilization.gpu,memory.used,memory.total",
+                                "--format=csv,noheader,nounits",
+                            ],
+                            stderr=subprocess.PIPE,  # Capture stderr to see errors
+                            text=True,
+                            timeout=2,
+                        ).strip()
+
+                        if nvidia_smi_output and not nvidia_smi_output.startswith("NVIDIA-SMI"):
+                            parts = nvidia_smi_output.split(", ")
+                            if len(parts) >= 3:
+                                gpu_percent = float(parts[0]) if parts[0] != "[N/A]" else 0
+                                vram_used_mb = float(parts[1]) if parts[1] != "[N/A]" else 0
+                                vram_total_mb = float(parts[2]) if parts[2] != "[N/A]" else 0
+                                vram_used_gb = vram_used_mb / 1024
+                                vram_total_gb = vram_total_mb / 1024
+                                vram_percent = (
+                                    (vram_used_gb / vram_total_gb * 100) if vram_total_gb > 0 else 0
+                                )
+                                logger.info(
+                                    f"✓ Using nvidia-smi fallback: GPU={gpu_percent}%, VRAM={vram_used_gb:.2f}/{vram_total_gb:.2f}GB"
+                                )
+                            else:
+                                logger.warning(
+                                    f"nvidia-smi returned unexpected format: {nvidia_smi_output}"
+                                )
+                        else:
+                            logger.warning(
+                                f"nvidia-smi returned empty or invalid output: {nvidia_smi_output}"
+                            )
+                    except subprocess.TimeoutExpired:
+                        logger.warning("nvidia-smi fallback timed out")
+                    except subprocess.CalledProcessError as e:
+                        logger.warning(
+                            f"nvidia-smi fallback failed with exit code {e.returncode}: {e.stderr}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"nvidia-smi fallback failed: {e}")
+
                 return {
                     "platform": "Jetson Orin (jtop)",
                     "gpu_name": self.gpu_name,
@@ -1183,13 +1331,51 @@ class JetsonOrinMonitor(GPUMonitor):
                 }
             except Exception as e:
                 logger.error(f"Error getting jtop stats: {e}")
+                # Try nvidia-smi as fallback when jtop completely fails
+                gpu_percent_fallback = 0
+                vram_used_gb_fallback = 0
+                vram_total_gb_fallback = 0
+                try:
+                    import subprocess
+
+                    nvidia_smi_output = subprocess.check_output(
+                        [
+                            "nvidia-smi",
+                            "--query-gpu=utilization.gpu,memory.used,memory.total",
+                            "--format=csv,noheader,nounits",
+                        ],
+                        stderr=subprocess.DEVNULL,
+                        text=True,
+                        timeout=2,
+                    ).strip()
+                    if nvidia_smi_output:
+                        parts = nvidia_smi_output.split(", ")
+                        if len(parts) >= 3:
+                            gpu_percent_fallback = float(parts[0]) if parts[0] != "[N/A]" else 0
+                            vram_used_mb = float(parts[1]) if parts[1] != "[N/A]" else 0
+                            vram_total_mb = float(parts[2]) if parts[2] != "[N/A]" else 0
+                            vram_used_gb_fallback = vram_used_mb / 1024
+                            vram_total_gb_fallback = vram_total_mb / 1024
+                            logger.info(
+                                f"Using nvidia-smi fallback after jtop error: GPU={gpu_percent_fallback}%, VRAM={vram_used_gb_fallback:.2f}/{vram_total_gb_fallback:.2f}GB"
+                            )
+                except Exception:
+                    pass
+
                 return {
                     "platform": "Jetson Orin (jtop error)",
                     "gpu_name": self.gpu_name,
-                    "gpu_percent": 0,
-                    "vram_used_gb": 0,
-                    "vram_total_gb": 0,
-                    "vram_percent": 0,
+                    "gpu_percent": gpu_percent_fallback,
+                    "vram_used_gb": round(vram_used_gb_fallback, 2),
+                    "vram_total_gb": round(vram_total_gb_fallback, 2),
+                    "vram_percent": round(
+                        (
+                            (vram_used_gb_fallback / vram_total_gb_fallback * 100)
+                            if vram_total_gb_fallback > 0
+                            else 0
+                        ),
+                        1,
+                    ),
                     **system_stats,
                 }
 
