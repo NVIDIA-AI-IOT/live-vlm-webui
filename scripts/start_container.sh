@@ -993,7 +993,7 @@ if [ "$OS" = "Darwin" ]; then
 elif [ "$ARCH" = "x86_64" ]; then
     PLATFORM="x86"
     PLATFORM_SUFFIX=""
-    GPU_FLAG="--gpus all"
+    GPU_FLAG="--runtime=nvidia"
     echo -e "   Platform: ${GREEN}PC (x86_64)${NC}"
 
 elif [ "$ARCH" = "aarch64" ]; then
@@ -1029,7 +1029,7 @@ elif [ "$ARCH" = "aarch64" ]; then
             if echo "$GPU_NAME" | grep -qi "thor"; then
                 PLATFORM="jetson-thor"
                 PLATFORM_SUFFIX="-jetson-thor"
-                GPU_FLAG="--gpus all"
+                GPU_FLAG="--runtime=nvidia"
                 echo -e "   Platform: ${GREEN}NVIDIA Jetson Thor${NC} (detected via GPU: ${GPU_NAME})"
             else
                 PLATFORM="jetson-orin"
@@ -1046,7 +1046,7 @@ elif [ "$ARCH" = "aarch64" ]; then
         if [ "$L4T_VERSION" -ge 38 ]; then
             PLATFORM="jetson-thor"
             PLATFORM_SUFFIX="-jetson-thor"
-            GPU_FLAG="--gpus all"
+            GPU_FLAG="--runtime=nvidia"
             echo -e "   Platform: ${GREEN}NVIDIA Jetson Thor${NC} (L4T R${L4T_VERSION})"
         else
             PLATFORM="jetson-orin"
@@ -1061,7 +1061,7 @@ elif [ "$ARCH" = "aarch64" ]; then
         if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
             PLATFORM="arm64-sbsa"
             PLATFORM_SUFFIX=""  # Multi-arch image (works on both x86 and ARM64)
-            GPU_FLAG="--gpus all"
+            GPU_FLAG="--runtime=nvidia"
 
             # Check if it's specifically DGX Spark
             if [ -f /etc/dgx-release ]; then
