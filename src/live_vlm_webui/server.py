@@ -984,6 +984,18 @@ def main():
 
     args = parser.parse_args()
 
+    # Load optional webhook settings (config-only; dispatch is added in later issues).
+    from .webhook_config import load_webhook_config
+
+    webhook_config = load_webhook_config()
+    logger.info("Webhook config:")
+    logger.info("  Enabled: %s", webhook_config.enabled)
+    logger.info("  URL configured: %s", bool(webhook_config.url))
+    logger.info("  Timeout: %.2fs", webhook_config.timeout_sec)
+    logger.info("  Mode: %s", webhook_config.mode)
+    logger.info("  Sample every: %d", webhook_config.sample_every)
+    logger.info("  Include metrics: %s", webhook_config.include_metrics)
+
     # Set default SSL cert paths to config directory if not specified
     if args.ssl_cert is None:
         config_dir = get_app_config_dir()
