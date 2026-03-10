@@ -492,6 +492,36 @@ Once connected, you should immediately see:
 - VLM analysis results appearing in the UI
 - GPU utilization increasing (check with `nvidia-smi` or `jtop`)
 
+### Deployed at a public URL (e.g. Docker behind reverse proxy) – no video in container
+
+**Symptoms:**
+- Same as above (ICE stuck at "checking", no video in the page’s video element)
+- Server is in Docker and reached via a public URL (e.g. `https://vlm.example.org/`)
+
+**Cause:** In Docker bridge mode, the server’s ICE candidates often include the container’s private IP (e.g. `172.17.x.x`). The browser cannot reach that IP, so the WebRTC connection never reaches "connected" and no video is shown.
+
+**What the server does now (recent versions):**
+- Waits for ICE gathering to complete before returning the answer, so the SDP can include STUN (server reflexive) candidates (public IP) as well.
+- Logs a warning if the answer SDP still contains private IPs:  
+  `Answer SDP contains private IP candidates (Docker/NAT)...`
+
+**Debug steps:**
+
+1. **Server logs**  
+   After clicking Start and allowing camera, check for:
+   - `ICE connection state: connected` and `Connection state: connected`  
+   If you only see `ICE connection state: checking` and `Connection state: connecting`, ICE is not completing.
+   - Any warning: `Answer SDP contains private IP candidates (Docker/NAT)` → server is advertising private IPs; see fixes below.
+
+2. **Browser DevTools**
+   - **Console:** Look for `ICE connection state: connected` (good) or `checking` / `failed` (bad).
+   - **Network:** Select the request to `/offer`, open Response, and search the response body for `172.` or `192.168.`. If present, the client is receiving private-IP candidates it likely cannot use.
+
+3. **Fixes to try**
+   - **Host network (if acceptable):** Run the container with `--network host` so the server binds and advertises the host’s IP. Ensure the host firewall allows UDP in the WebRTC port range (e.g. 49152–65535) if clients are remote.
+   - **Firewall:** If the server has a public IP (host or after NAT), allow UDP (e.g. 49152–65535) for WebRTC in addition to TCP 8090 (or your HTTPS port).
+   - **TURN server:** For strict NAT/firewall setups, run a TURN server and add it to the WebRTC config so the client can connect via TURN when direct/STUN fails.
+
 ---
 
 ## VLM Backend Issues

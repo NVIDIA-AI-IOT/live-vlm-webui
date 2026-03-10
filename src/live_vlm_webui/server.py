@@ -656,9 +656,37 @@ async def offer(request):
 
     logger.info(f"Created answer with {len(pc.getTransceivers())} transceivers")
 
+    # Wait for ICE gathering to complete so the SDP includes server reflexive (STUN)
+    # candidates. Without this, Docker/bridge deployments may only advertise internal
+    # IPs (e.g. 172.x) and the client never reaches "connected".
+    ice_done = asyncio.get_event_loop().create_future()
+    if pc.iceGatheringState == "complete":
+        ice_done.set_result(None)
+    else:
+
+        def _on_ice_gathering_state():
+            logger.info(f"ICE gathering state: {pc.iceGatheringState}")
+            if pc.iceGatheringState == "complete" and not ice_done.done():
+                ice_done.set_result(None)
+
+        pc.on("icegatheringstatechange", _on_ice_gathering_state)
+        try:
+            await asyncio.wait_for(ice_done, timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning("ICE gathering did not complete within 5s, returning answer anyway")
+        finally:
+            pc.remove_listener("icegatheringstatechange", _on_ice_gathering_state)
+
+    sdp = pc.localDescription.sdp
+    if "172." in sdp or "192.168." in sdp:
+        logger.warning(
+            "Answer SDP contains private IP candidates (Docker/NAT). "
+            "If clients cannot connect, use host network or TURN. See docs/troubleshooting.md"
+        )
+
     return web.Response(
         content_type="application/json",
-        text=json.dumps({"sdp": pc.localDescription.sdp, "type": pc.localDescription.type}),
+        text=json.dumps({"sdp": sdp, "type": pc.localDescription.type}),
     )
 
 
