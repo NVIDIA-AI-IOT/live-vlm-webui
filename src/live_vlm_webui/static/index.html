@@ -2587,20 +2587,28 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
 
         // Enumerate and list available cameras
         async function enumerateCameras() {
+            const cameraSelect = document.getElementById('cameraSelect');
+            cameraSelect.innerHTML = '';
+
+            let permissionError = null;
+
             try {
-                // Request permission first to get device labels
+                // Request permission first to get device labels.
+                // This can fail if the default camera is busy, but we can still
+                // fall back to enumerateDevices() and let the user pick another one.
                 const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
                 tempStream.getTracks().forEach(track => track.stop());
+            } catch (err) {
+                permissionError = err;
+                console.warn('Initial camera probe failed, falling back to device enumeration:', err);
+            }
 
-                // Now enumerate with labels
+            try {
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 const videoDevices = devices.filter(device => device.kind === 'videoinput');
 
-                const cameraSelect = document.getElementById('cameraSelect');
-                cameraSelect.innerHTML = '';
-
                 if (videoDevices.length === 0) {
-                    cameraSelect.innerHTML = '<option value="">No cameras found</option>';
+                    cameraSelect.innerHTML = `<option value="">${permissionError ? 'No accessible cameras found' : 'No cameras found'}</option>`;
                     return;
                 }
 
@@ -2611,12 +2619,18 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                     cameraSelect.appendChild(option);
                 });
 
-                // Select first camera by default
-                selectedCameraId = videoDevices[0].deviceId;
+                if (!selectedCameraId || !videoDevices.some(device => device.deviceId === selectedCameraId)) {
+                    selectedCameraId = videoDevices[0].deviceId;
+                    cameraSelect.value = selectedCameraId;
+                }
+
                 console.log(`Found ${videoDevices.length} camera(s)`);
+                if (permissionError) {
+                    console.warn('Camera labels or default access may be limited until camera permissions or device availability are fixed.');
+                }
             } catch (err) {
                 console.error('Error enumerating cameras:', err);
-                document.getElementById('cameraSelect').innerHTML = '<option value="">Error detecting cameras</option>';
+                cameraSelect.innerHTML = '<option value="">Error detecting cameras</option>';
             }
         }
 
