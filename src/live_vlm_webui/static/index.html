@@ -4237,6 +4237,27 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 const offer = await peerConnection.createOffer();
                 await peerConnection.setLocalDescription(offer);
 
+                // Wait for ICE gathering to complete before sending offer
+                // so all browser ICE candidates are embedded in the SDP
+                await new Promise((resolve) => {
+                    if (peerConnection.iceGatheringState === 'complete') {
+                        resolve();
+                    } else {
+                        const checkState = () => {
+                            if (peerConnection.iceGatheringState === 'complete') {
+                                peerConnection.removeEventListener('icegatheringstatechange', checkState);
+                                resolve();
+                            }
+                        };
+                        peerConnection.addEventListener('icegatheringstatechange', checkState);
+                        setTimeout(() => {
+                            peerConnection.removeEventListener('icegatheringstatechange', checkState);
+                            console.warn('ICE gathering timeout - proceeding anyway');
+                            resolve();
+                        }, 5000);
+                    }
+                });
+
                 const response = await fetch('/offer', {
                     method: 'POST',
                     headers: {
