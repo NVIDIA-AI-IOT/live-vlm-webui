@@ -61,6 +61,13 @@ class VideoProcessorTrack(VideoStreamTrack):
         self.first_frame_time = None  # Wall clock time of first frame
         self.frame_time_base = None  # Time base for PTS conversion (e.g., 1/90000)
 
+    def _reset_timing(self, frame):
+        """Re-anchor the latency baseline to the given frame."""
+        if frame.pts is not None:
+            self.first_frame_pts = frame.pts
+            self.first_frame_time = time.time()
+            self.frame_time_base = float(frame.time_base)
+
     async def recv(self):
         """
         Receive frame from input track, process it, and return with text overlay
@@ -98,6 +105,7 @@ class VideoProcessorTrack(VideoStreamTrack):
 
                 # Drop frames until we get a fresh one
                 dropped_count = 0
+                latency_before_drop = frame_latency
                 while frame_latency > max_latency:
                     self.dropped_frames += 1
                     dropped_count += 1
@@ -116,15 +124,26 @@ class VideoProcessorTrack(VideoStreamTrack):
                         # If PTS becomes unavailable, stop dropping frames
                         break
 
+                    # Dropping only reclaims latency when the source clock advances at
+                    # least as fast as wall clock. If it does not, each dropped frame
+                    # costs more wall time than it recovers and the loop makes things
+                    # worse - re-anchor the timeline instead of draining the stream.
+                    if dropped_count >= 10 and frame_latency >= latency_before_drop:
+                        logger.warning(
+                            f"Dropping is not reducing latency "
+                            f"({latency_before_drop:.2f}s -> {frame_latency:.2f}s after "
+                            f"{dropped_count} frames); source clock does not track wall "
+                            f"clock. Re-anchoring timing."
+                        )
+                        self._reset_timing(frame)
+                        break
+
                     # Prevent infinite loop
                     if dropped_count > 100:
                         logger.error(
                             f"Dropped {dropped_count} frames, but still behind. Resetting timing."
                         )
-                        if frame.pts is not None:
-                            self.first_frame_pts = frame.pts
-                            self.first_frame_time = time.time()
-                            self.frame_time_base = float(frame.time_base)
+                        self._reset_timing(frame)
                         break
 
                 if dropped_count > 0:
