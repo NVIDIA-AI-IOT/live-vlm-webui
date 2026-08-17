@@ -37,6 +37,9 @@ pytest tests/unit tests/integration tests/performance
 # Run unit tests only (fast)
 pytest tests/unit
 
+# Test Docker runtime selection without Docker or a Jetson
+bash tests/shell/test_docker_runtime.sh
+
 # Run with coverage
 pytest --cov=live_vlm_webui --cov-report=html
 
