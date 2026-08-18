@@ -61,6 +61,20 @@ Docker is **strongly recommended** for Jetson platforms:
 
 For advanced users who want fine-grained control over Docker configuration.
 
+### Jetson Docker runtime check
+
+Before starting a Jetson container, the launcher checks Docker's registered runtimes. On **Jetson Orin (JetPack 6 / L4T R36)** it uses `--runtime=nvidia` only when Docker reports that runtime. If it is missing, the launcher exits before creating a container instead of failing with `unknown or invalid runtime name: nvidia`.
+
+Repair the runtime on the Jetson, then rerun the launcher:
+
+```bash
+sudo apt update
+sudo apt install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl daemon-reload && sudo systemctl restart docker
+docker info --format '{{json .Runtimes}}'  # must contain "nvidia"
+```
+
 ### PC (x86_64 with NVIDIA GPU)
 
 ```bash
