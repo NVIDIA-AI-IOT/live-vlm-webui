@@ -18,6 +18,46 @@ python server.py --help
 - `--api-key KEY` - API key, use `EMPTY` for local servers (default: `EMPTY`)
 - `--prompt TEXT` - Custom prompt for VLM (default: scene description)
 - `--process-every N` - Process every Nth frame (default: `30`)
+- `--reasoning-effort {none,low,medium,high}` - Optional reasoning setting for a compatible model and API; omitted by default
+
+## Thinking / Reasoning Effort
+
+Use **Prompt Editor → Thinking** to change reasoning effort for the current
+session. Changes apply to subsequent inference requests; a request already in
+progress uses its original setting. A new page starts with the server's CLI
+default.
+
+| UI setting | Field sent to `/v1/chat/completions` |
+|---|---|
+| Model default | `reasoning_effort` is omitted |
+| Off | `"reasoning_effort": "none"` |
+| On — Low | `"reasoning_effort": "low"` |
+| On — Medium | `"reasoning_effort": "medium"` |
+| On — High | `"reasoning_effort": "high"` |
+
+For short image captions with Ollama and `gemma4:e2b`, disable thinking with:
+
+```bash
+python -m live_vlm_webui.server \
+  --model gemma4:e2b \
+  --api-base http://127.0.0.1:11434/v1 \
+  --reasoning-effort none
+```
+
+Then set **Max Tokens** to `128` in the UI. Thinking can otherwise consume a
+short token budget before a final answer is generated. In a local Gemma4 E2B
+test, `none` produced a final answer with no reasoning output at this budget.
+
+This is not a universal model switch. Supported values and their effects depend
+on the model, backend, and version; some models cannot disable thinking or do
+not distinguish all effort levels. The UI does not detect these capabilities.
+An unsupported value may be rejected or ignored by the backend. Select **Model
+default** to omit the parameter and retain the backend's normal behavior.
+
+[Ollama's OpenAI-compatible API](https://docs.ollama.com/api/openai-compatibility)
+accepts `reasoning_effort`. Its native `/api/chat` uses `think` instead; this
+application uses `/v1/chat/completions`. See also
+[Ollama's model-specific thinking support](https://docs.ollama.com/capabilities/thinking).
 
 ## Example Configurations
 
