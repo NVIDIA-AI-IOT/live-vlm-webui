@@ -1756,6 +1756,7 @@ limitations under the License.
         /* Input fields - Focus and Apply animations */
         #promptText,
         #maxTokens,
+        #thinkingMode,
         #processEvery,
         #apiBaseUrl,
         #apiKey,
@@ -1768,6 +1769,7 @@ limitations under the License.
         /* Default: Neutral white focus glow (when colorful is disabled) */
         #promptText:focus,
         #maxTokens:focus,
+        #thinkingMode:focus,
         #processEvery:focus,
         #cameraSelect:focus,
         #apiBaseUrl:focus,
@@ -1822,6 +1824,7 @@ limitations under the License.
 
         #promptText.applied,
         #maxTokens.applied,
+        #thinkingMode.applied,
         #processEvery.applied,
         #apiBaseUrl.applied,
         #apiKey.applied,
@@ -2377,6 +2380,17 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                         <input type="number" id="maxTokens" value="512" min="1" max="4096" step="1">
                         <div class="input-hint">Lower for short answers (Yes/No: ~10), higher for detailed descriptions</div>
                     </div>
+                    <div class="form-group">
+                        <label for="thinkingMode">Thinking</label>
+                        <select id="thinkingMode" disabled>
+                            <option value="">Model default</option>
+                            <option value="none">Off</option>
+                            <option value="low">On — Low</option>
+                            <option value="medium">On — Medium</option>
+                            <option value="high">On — High</option>
+                        </select>
+                        <div class="input-hint">Requires model and API support. Applies to the next request. Thinking On may need more Max Tokens.</div>
+                    </div>
                 </div>
             </div>
 
@@ -2566,6 +2580,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
         const promptPreset = document.getElementById('promptPreset');
         const promptText = document.getElementById('promptText');
         const maxTokens = document.getElementById('maxTokens');
+        const thinkingMode = document.getElementById('thinkingMode');
         const modelSelect = document.getElementById('modelSelect');
         const refreshModelsBtn = document.getElementById('refreshModelsBtn');
         const processEvery = document.getElementById('processEvery');
@@ -3440,6 +3455,16 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             }
         }
 
+        thinkingMode.addEventListener('change', () => {
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                thinkingMode.disabled = true;
+                websocket.send(JSON.stringify({
+                    type: 'update_reasoning',
+                    reasoning_effort: thinkingMode.value || null
+                }));
+            }
+        });
+
         // Handle preset selection
         promptPreset.addEventListener('change', (e) => {
             if (e.target.value) {
@@ -4114,6 +4139,8 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                     if (data.process_every != null && !isNaN(data.process_every)) {
                         processEvery.value = String(data.process_every);
                     }
+                    thinkingMode.value = data.reasoning_effort ?? '';
+                    thinkingMode.disabled = false;
                     const reqCb = document.getElementById('debugShowRequestPayload');
                     const resCb = document.getElementById('debugShowResponsePayload');
                     if ((reqCb?.checked || resCb?.checked) && websocket && websocket.readyState === WebSocket.OPEN) {
@@ -4129,6 +4156,12 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                         document.getElementById('modelName').textContent = data.model;
                         console.log('Model updated to:', data.model);
                     }
+                } else if (data.type === 'reasoning_updated') {
+                    thinkingMode.value = data.reasoning_effort ?? '';
+                    thinkingMode.disabled = false;
+                    thinkingMode.classList.add('applied');
+                    setTimeout(() => thinkingMode.classList.remove('applied'), 600);
+                    if (data.error) updateStatus(data.error, 'disconnected');
                 } else if (data.type === 'prompt_updated') {
                     // Prompt was updated on server (already handled in applyPrompt)
                     console.log('Prompt updated:', data.prompt);
@@ -4143,6 +4176,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             };
 
             websocket.onclose = () => {
+                thinkingMode.disabled = true;
                 console.log('WebSocket disconnected, will reconnect...');
                 websocket = null;
                 updateStatus('Reconnecting...', 'disconnected');

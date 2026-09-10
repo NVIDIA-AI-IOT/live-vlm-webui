@@ -41,6 +41,7 @@ class VLMService:
         api_key: str = "EMPTY",
         prompt: str = "Describe what you see in this image in one sentence.",
         max_tokens: int = 512,
+        reasoning_effort: Optional[str] = None,
     ):
         """
         Initialize VLM service
@@ -51,12 +52,14 @@ class VLMService:
             api_key: API key (use "EMPTY" for local servers)
             prompt: Default prompt to use for image analysis
             max_tokens: Maximum tokens to generate
+            reasoning_effort: Optional backend reasoning setting; "none" disables thinking in Ollama
         """
         self.model = model
         self.api_base = api_base
         self.api_key = api_key if api_key else "EMPTY"
         self.prompt = prompt
         self.max_tokens = max_tokens
+        self.reasoning_effort = reasoning_effort
         self.client = AsyncOpenAI(base_url=api_base, api_key=api_key)
         self.current_response = "Initializing..."
         self.is_processing = False
@@ -126,9 +129,19 @@ class VLMService:
                 "temperature": 0.7,
             }
 
+            # Omit this optional parameter for backends that do not support it.
+            request_options = {}
+            if self.reasoning_effort is not None:
+                request_options["reasoning_effort"] = self.reasoning_effort
+            self._last_request_payload.update(request_options)
+
             # Call API
             response = await self.client.chat.completions.create(
-                model=self.model, messages=messages, max_tokens=self.max_tokens, temperature=0.7
+                model=self.model,
+                messages=messages,
+                max_tokens=self.max_tokens,
+                temperature=0.7,
+                extra_body=request_options,
             )
 
             # Store response payload for debug (serialize to dict)
