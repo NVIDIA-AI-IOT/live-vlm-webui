@@ -139,7 +139,8 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install black ruff mypy
+        # Match the Ruff version used by .pre-commit-config.yaml.
+        pip install black ruff==0.14.4 mypy
 
     - name: Check formatting (black)
       run: black --check src/ tests/
@@ -150,4 +151,3 @@ jobs:
     - name: Type check (mypy)
       run: mypy src/ --ignore-missing-imports
       continue-on-error: true
-
