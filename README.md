@@ -89,6 +89,9 @@ The script auto-detects your platform, lets you choose a version, and starts the
 > 📘 **Full Docker Guide:** [docs/setup/docker.md](docs/setup/docker.md)
 > Includes manual commands, troubleshooting, network modes, and more.
 
+For a display that automatically opens the camera demo after desktop login, see
+the [kiosk setup guide](docs/setup/kiosk.md) (localhost HTTP, Chromium, and startup services).
+
 **Platforms supported:**
 - ✅ Linux PC (x86_64)
 - ✅ DGX Spark (ARM64)

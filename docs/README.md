@@ -7,6 +7,7 @@ User-facing and contributor documentation:
 ### User Documentation
 - **`troubleshooting.md`** - Common issues and solutions
 - **`setup/`** - Setup guides for different platforms
+  - **`kiosk.md`** - Boot-to-demo kiosk setup for retail and lab displays
 - **`usage/`** - Usage guides and operational information
   - **`gpu-monitoring.md`** - Understanding GPU utilization behavior
   - **`advanced-configuration.md`** - Advanced configuration options

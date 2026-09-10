@@ -19,6 +19,7 @@ Main server that handles WebRTC connections and serves the web interface
 """
 
 import asyncio
+import ipaddress
 import json
 import logging
 import os
@@ -32,17 +33,17 @@ from collections import defaultdict
 import aiohttp
 from aiohttp import web
 from aiortc import (
-    RTCPeerConnection,
-    RTCSessionDescription,
     RTCConfiguration,
     RTCIceServer,
+    RTCPeerConnection,
+    RTCSessionDescription,
 )
 from aiortc.contrib.media import MediaRelay
 
-from .vlm_service import VLMService
-from .video_processor import VideoProcessorTrack
 from .gpu_monitor import create_monitor
 from .rtsp_track import RTSPVideoTrack
+from .video_processor import VideoProcessorTrack
+from .vlm_service import VLMService
 
 # Configure logging
 logging.basicConfig(
@@ -76,6 +77,7 @@ def get_or_create_session(session_id: str):
                 api_base=cfg.get("api_base", "http://localhost:8000/v1"),
                 api_key=cfg.get("api_key", "EMPTY"),
                 prompt=cfg.get("prompt", "Describe what you see in this image in one sentence."),
+                max_tokens=cfg.get("max_tokens", 512),
             ),
             "show_request_payload": False,
             "show_response_payload": False,
@@ -165,6 +167,17 @@ def find_available_port(start_port=8080, max_attempts=10):
         if is_port_available(port):
             return port
     return None
+
+
+def is_loopback_host(host):
+    """Return True when a server host value is limited to localhost."""
+    normalized = (host or "").strip().lower().strip("[]")
+    if normalized == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
 
 
 async def detect_local_service_and_model():
@@ -350,6 +363,7 @@ async def websocket_handler(request):
                 "model": svc.model,
                 "api_base": svc.api_base,
                 "prompt": svc.prompt,
+                "max_tokens": svc.max_tokens,
                 "process_every": _VPT.process_every_n_frames,
                 "session_id": session_id,
             }
@@ -980,8 +994,8 @@ def get_app_config_dir():
 
 def generate_self_signed_cert(cert_path="cert.pem", key_path="key.pem"):
     """Generate a self-signed SSL certificate if it doesn't exist"""
-    import subprocess
     import os
+    import subprocess
 
     if os.path.exists(cert_path) and os.path.exists(key_path):
         return True
@@ -1026,6 +1040,7 @@ def main():
     """Main entry point"""
     import argparse
     import ssl
+
     from . import __version__
 
     parser = argparse.ArgumentParser(
@@ -1034,9 +1049,19 @@ def main():
         "  vLLM:    python server.py --model llama-3.2-11b-vision-instruct --api-base http://localhost:8000/v1\n"
         "  SGLang:  python server.py --model llama-3.2-11b-vision-instruct --api-base http://localhost:30000/v1\n"
         "  Ollama:  python server.py --model llava:7b --api-base http://localhost:11434/v1\n"
-        "  HTTPS:   python server.py --model llava:7b --api-base http://localhost:11434/v1 --ssl-cert cert.pem --ssl-key key.pem",
+        "  HTTPS:   python server.py --model llava:7b --api-base http://localhost:11434/v1 --ssl-cert cert.pem --ssl-key key.pem\n"
+        "  Kiosk:   python server.py --localhost-http --model llava:7b --api-base http://localhost:11434/v1",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    default_prompt = os.environ.get(
+        "LIVE_VLM_DEFAULT_PROMPT",
+        "Describe what you see in this image in one sentence.",
+    )
+    try:
+        default_max_tokens = int(os.environ.get("LIVE_VLM_MAX_TOKENS", "512"))
+    except ValueError:
+        logger.warning("Invalid LIVE_VLM_MAX_TOKENS value; using 512")
+        default_max_tokens = 512
     parser.add_argument(
         "--version",
         action="version",
@@ -1062,8 +1087,14 @@ def main():
     )
     parser.add_argument(
         "--prompt",
-        default="Describe what you see in this image in one sentence.",
-        help="Prompt to send to VLM (default: 'Describe what you see...')",
+        default=default_prompt,
+        help="Prompt to send to VLM (default can be set with LIVE_VLM_DEFAULT_PROMPT)",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=default_max_tokens,
+        help="Maximum tokens to generate (default: 512, or LIVE_VLM_MAX_TOKENS)",
     )
     # Get default SSL cert paths (platform-specific)
     default_config_dir = get_app_config_dir()
@@ -1084,10 +1115,23 @@ def main():
     parser.add_argument(
         "--no-ssl",
         action="store_true",
-        help="Disable SSL (not recommended - webcam requires HTTPS)",
+        help="Disable SSL (webcam works on http://localhost; remote access requires HTTPS)",
+    )
+    parser.add_argument(
+        "--localhost-http",
+        action="store_true",
+        help=(
+            "Serve HTTP on 127.0.0.1 for same-device kiosk use. "
+            "This avoids self-signed certificate prompts while keeping the browser on localhost."
+        ),
     )
 
     args = parser.parse_args()
+    if args.max_tokens < 1:
+        parser.error("--max-tokens must be >= 1")
+    if args.localhost_http:
+        args.host = "127.0.0.1"
+        args.no_ssl = True
 
     # Cloud deployment: env overrides for default API base, model, and frame interval
     if os.environ.get("LIVE_VLM_API_BASE"):
@@ -1147,12 +1191,19 @@ def main():
 
     # Initialize VLM service and default session for multi-session support
     global vlm_service, default_vlm_config
-    vlm_service = VLMService(model=model, api_base=api_base, api_key=api_key, prompt=args.prompt)
+    vlm_service = VLMService(
+        model=model,
+        api_base=api_base,
+        api_key=api_key,
+        prompt=args.prompt,
+        max_tokens=args.max_tokens,
+    )
     default_vlm_config = {
         "model": model,
         "api_base": api_base,
         "api_key": api_key,
         "prompt": args.prompt,
+        "max_tokens": args.max_tokens,
     }
     sessions["default"] = {
         "vlm_service": vlm_service,
@@ -1185,7 +1236,7 @@ def main():
                 # FAIL FAST - SSL is required for webcam access
                 logger.error("")
                 logger.error("❌ Cannot start server without SSL certificates")
-                logger.error("❌ Webcam access requires HTTPS!")
+                logger.error("❌ Remote webcam access requires HTTPS!")
                 logger.error("")
                 logger.error("🔧 To fix, install openssl:")
                 logger.error("   Linux/Jetson: sudo apt install openssl")
@@ -1193,9 +1244,7 @@ def main():
                 logger.error("")
                 logger.error("   Then restart the server")
                 logger.error("")
-                logger.error(
-                    "⚠️  Or run with --no-ssl if you don't need camera access (not recommended)"
-                )
+                logger.error("⚠️  For a local kiosk, use --localhost-http and http://localhost")
                 logger.error("")
                 sys.exit(1)
 
@@ -1211,7 +1260,12 @@ def main():
             sys.exit(1)
     else:
         logger.warning("⚠️  SSL disabled with --no-ssl flag")
-        logger.warning("⚠️  Webcam access will NOT work without HTTPS!")
+        if args.localhost_http or is_loopback_host(args.host):
+            logger.info("Using localhost HTTP mode for same-device browser access")
+            logger.info("Open http://localhost:%s on this machine for webcam access", args.port)
+        else:
+            logger.warning("⚠️  Webcam access may not work from non-local HTTP origins")
+            logger.warning("⚠️  Use HTTPS for browsers connecting from another device")
 
     # Get network addresses
     import socket

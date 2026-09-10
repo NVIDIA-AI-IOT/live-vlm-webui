@@ -1979,6 +1979,8 @@ limitations under the License.
     <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js"></script>
     <script>
+        // Keep the local demo usable when the optional icon CDN is unavailable.
+        window.lucide = window.lucide || { createIcons() {} };
         // Initialize Lucide icons immediately when DOM is ready
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => lucide.createIcons());
@@ -2580,6 +2582,10 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
         // Multi-session: one ID per page/tab; sent in WebSocket and /offer so this tab gets only its VLM output
         const sessionId = crypto.randomUUID ? crypto.randomUUID() : 'tab-' + Date.now() + '-' + Math.random().toString(36).slice(2);
         let isAnalysisRunning = false;
+        let isStarting = false;
+        // Explicit opt-in for an attended demo station with camera permission configured.
+        const autoStart = new URLSearchParams(window.location.search).get('autostart') === '1';
+        let autoStartPending = autoStart;
         let selectedCameraId = null;
         let rtspSessionId = 'default';  // For RTSP mode
         // Enable markdown by default (user can disable if they prefer raw text)
@@ -2822,10 +2828,12 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
         // Markdown rendering function
         function renderMarkdown(text) {
             if (!text) return '';
+            const plainText = document.createElement('div');
+            plainText.textContent = text;
             // Check if libraries are loaded
             if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
                 console.warn('Markdown libraries not loaded, falling back to plain text');
-                return text;
+                return plainText.innerHTML;
             }
             try {
                 // Configure marked options
@@ -2841,7 +2849,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 });
             } catch (e) {
                 console.error('Error rendering markdown:', e);
-                return text; // Fallback to plain text on error
+                return plainText.innerHTML; // Escaped plain text on error
             }
         }
 
@@ -2967,7 +2975,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
         }
 
         // Enumerate cameras on page load
-        enumerateCameras();
+        const camerasReady = enumerateCameras();
 
         // Theme management: Honor OS preference with manual override support
         function applyTheme(theme) {
@@ -3997,6 +4005,11 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             websocket = new WebSocket(wsUrl);
 
             websocket.onopen = () => {
+                // Recreate the WebRTC session after the server becomes available again.
+                if (autoStart && !autoStartPending) {
+                    window.location.reload();
+                    return;
+                }
                 console.log('WebSocket connected');
                 updateStatus('Connected', 'connected');
 
@@ -4004,7 +4017,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 // This ensures auto-selected models are properly initialized on the server side
                 // Fix for race condition: page load might auto-select model before WS connects
                 const currentModel = modelSelect.value;
-                if (currentModel) {
+                if (currentModel && !autoStart) {
                     console.log('Initializing server with current model:', currentModel);
                     applyApiSettings({ showFeedback: false });
                 }
@@ -4101,8 +4114,9 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                     // Server sent its current configuration (model, api_base, prompt)
                     if (data.model) {
                         document.getElementById('modelName').textContent = data.model;
-                        // Also update the model select if it matches
-                        if (modelSelect.querySelector(`option[value="${data.model}"]`)) {
+                        if (autoStart) {
+                            modelSelect.replaceChildren(new Option(data.model, data.model));
+                        } else if (modelSelect.querySelector(`option[value="${data.model}"]`)) {
                             modelSelect.value = data.model;
                         }
                     }
@@ -4113,6 +4127,19 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                     }
                     if (data.process_every != null && !isNaN(data.process_every)) {
                         processEvery.value = String(data.process_every);
+                    }
+                    if (data.prompt) {
+                        promptText.value = data.prompt;
+                        const promptPreview = data.prompt.length > 150 ? data.prompt.substring(0, 150) + '...' : data.prompt;
+                        currentPrompt.textContent = `Prompt: ${promptPreview}`;
+                    }
+                    if (data.max_tokens != null && !isNaN(data.max_tokens)) {
+                        maxTokens.value = String(data.max_tokens);
+                    }
+                    if (autoStartPending) {
+                        autoStartPending = false;
+                        // Camera enumeration briefly opens the device; let it release it first.
+                        camerasReady.then(() => start());
                     }
                     const reqCb = document.getElementById('debugShowRequestPayload');
                     const resCb = document.getElementById('debugShowResponsePayload');
@@ -4152,24 +4179,30 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
 
         // Start - dispatch to webcam or RTSP based on active tab
         async function start() {
-            // Animate big button
-            const bigBtn = document.getElementById('bigStartBtn');
-            bigBtn.classList.add('animating');
-            setTimeout(() => {
-                bigBtn.classList.remove('animating');
-                bigBtn.classList.add('streaming');
-            }, 500);
+            if (isStarting || isAnalysisRunning) return;
+            isStarting = true;
+            try {
+                // Animate big button
+                const bigBtn = document.getElementById('bigStartBtn');
+                bigBtn.classList.add('animating');
+                setTimeout(() => {
+                    bigBtn.classList.remove('animating');
+                    bigBtn.classList.add('streaming');
+                }, 500);
 
-            // Show small stop button
-            document.getElementById('smallStopBtn').classList.add('show');
+                // Show small stop button
+                document.getElementById('smallStopBtn').classList.add('show');
 
-            const activeTab = document.querySelector('.input-source-tab.active');
-            const inputSource = activeTab ? activeTab.getAttribute('data-source') : 'webcam';
+                const activeTab = document.querySelector('.input-source-tab.active');
+                const inputSource = activeTab ? activeTab.getAttribute('data-source') : 'webcam';
 
-            if (inputSource === 'webcam') {
-                await startWebcam();
-            } else if (inputSource === 'rtsp') {
-                await startRTSP();
+                if (inputSource === 'webcam') {
+                    await startWebcam();
+                } else if (inputSource === 'rtsp') {
+                    await startRTSP();
+                }
+            } finally {
+                isStarting = false;
             }
         }
 
@@ -4437,9 +4470,11 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
 
         // Load on page load
         window.addEventListener('load', async () => {
-            // Detect services first, then fetch models
-            await detectServices();
-            fetchModels();
+            // Kiosks use the configured server defaults even if a backend is still warming up.
+            if (!autoStart) {
+                await detectServices();
+                fetchModels();
+            }
             connectWebSocket();
 
             // Initialize prompt display
