@@ -705,6 +705,23 @@ ollama pull llama3.2-vision:11b
 
 ## Docker Issues
 
+### "unknown or invalid runtime name: nvidia" on Jetson
+
+**Issue:** The launcher stops before starting a Jetson Orin container because Docker does not list the `nvidia` runtime. Without that runtime, the Jetson image cannot receive the required NVIDIA driver and L4T mounts.
+
+**Fix:** Configure the NVIDIA Container Toolkit for Docker, restart Docker, and verify the runtime before trying again:
+
+```bash
+sudo apt update
+sudo apt install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl daemon-reload && sudo systemctl restart docker
+docker info --format '{{json .Runtimes}}'  # output must include "nvidia"
+./scripts/start_container.sh
+```
+
+For Jetson Orin systems provisioned with SDK Manager, these are the JetPack Docker setup steps. Do not work around this error by manually removing GPU support: the Jetson container requires it.
+
 ### "NVML not available" in Docker
 
 **Issue:** GPU monitoring shows "N/A" or NVML errors

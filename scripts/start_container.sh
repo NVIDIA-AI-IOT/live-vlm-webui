@@ -84,6 +84,11 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Docker runtime checks are kept separate so they can be tested without a
+# Jetson or a running container.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/docker_runtime.sh"
+
 # ==============================================================================
 # Functions to fetch and display available versions
 # ==============================================================================
@@ -1021,7 +1026,6 @@ elif [ "$ARCH" = "aarch64" ]; then
             # It's a Jetson, but we can't read L4T version - default to Orin (most common)
             PLATFORM="jetson-orin"
             PLATFORM_SUFFIX="-jetson-orin"
-            RUNTIME_FLAG="--runtime nvidia"
             echo -e "   Platform: ${GREEN}NVIDIA Jetson Orin${NC} (L4T version unavailable, detected via hardware)"
         elif command -v nvidia-smi &> /dev/null && nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi "jetson\|orin\|thor\|xavier\|nano"; then
             # Check GPU name for Jetson indicators
@@ -1029,12 +1033,10 @@ elif [ "$ARCH" = "aarch64" ]; then
             if echo "$GPU_NAME" | grep -qi "thor"; then
                 PLATFORM="jetson-thor"
                 PLATFORM_SUFFIX="-jetson-thor"
-                RUNTIME_FLAG="--runtime=nvidia"
                 echo -e "   Platform: ${GREEN}NVIDIA Jetson Thor${NC} (detected via GPU: ${GPU_NAME})"
             else
                 PLATFORM="jetson-orin"
                 PLATFORM_SUFFIX="-jetson-orin"
-                RUNTIME_FLAG="--runtime nvidia"
                 echo -e "   Platform: ${GREEN}NVIDIA Jetson Orin${NC} (detected via GPU: ${GPU_NAME})"
             fi
         fi
@@ -1046,12 +1048,10 @@ elif [ "$ARCH" = "aarch64" ]; then
         if [ "$L4T_VERSION" -ge 38 ]; then
             PLATFORM="jetson-thor"
             PLATFORM_SUFFIX="-jetson-thor"
-            RUNTIME_FLAG="--runtime=nvidia"
             echo -e "   Platform: ${GREEN}NVIDIA Jetson Thor${NC} (L4T R${L4T_VERSION})"
         else
             PLATFORM="jetson-orin"
             PLATFORM_SUFFIX="-jetson-orin"
-            RUNTIME_FLAG="--runtime nvidia"
             echo -e "   Platform: ${GREEN}NVIDIA Jetson Orin${NC} (L4T R${L4T_VERSION})"
         fi
     elif [ -z "$PLATFORM" ]; then
@@ -1085,6 +1085,13 @@ elif [ "$ARCH" = "aarch64" ]; then
 else
     echo -e "${RED}❌ Unsupported architecture: ${ARCH}${NC}"
     exit 1
+fi
+
+if [[ "$PLATFORM" == "jetson-"* ]]; then
+    echo -e "${YELLOW}🔍 Checking Jetson Docker GPU configuration...${NC}"
+    if ! configure_jetson_gpu_access; then
+        exit 1
+    fi
 fi
 
 echo ""

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Jetson Docker launcher:** Detect an unregistered NVIDIA runtime before starting Jetson Orin containers and show the JetPack repair steps.
+
 ---
 
 ## [0.4.0] - 2026-03-02
