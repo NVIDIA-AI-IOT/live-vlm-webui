@@ -79,3 +79,11 @@ tests/e2e/.test-data/
 cert.pem
 key.pem
 *.pem
+
+# Local segmentation models and validation outputs
+.models/
+artifacts/
+.venv-seg/
+
+# Per-machine Thor deployment paths
+thor-demo.json

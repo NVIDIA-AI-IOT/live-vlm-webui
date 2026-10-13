@@ -1,0 +1,15 @@
+{
+  "vlm_api_base": "http://127.0.0.1:8012/v1",
+  "vlm_model": "cosmos-nano-int4",
+  "vlm_backend": "edgellm",
+  "segmentation_model_dir": ".models",
+  "segmentation_engine": null,
+  "trt_runtime_prefix": null,
+  "cuda_dir": null,
+  "cosmos_dir": ".models/cosmos",
+  "ui_host": "0.0.0.0",
+  "ui_port": 8090,
+  "cosmos_port": 8012,
+  "segmentation_image": "live-vlm-webui:segmentation-thor",
+  "demo_max_size": "640x360"
+}

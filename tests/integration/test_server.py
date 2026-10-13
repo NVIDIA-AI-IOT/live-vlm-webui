@@ -106,6 +106,36 @@ class TestStaticFiles(AioHTTPTestCase):
             resp = await self.client.request("GET", src)
             assert resp.status == 200, f"Image referenced in HTML but missing: {src}"
 
+    async def test_shared_webui_assets(self):
+        """Both camera views can load the same native stylesheet and theme controller."""
+        for path, content_type, marker in (
+            ("/webui.css", "text/css", ".stream-mode-nav"),
+            ("/webui.js", "javascript", "webui:themechange"),
+        ):
+            response = await self.client.get(path)
+            assert response.status == 200
+            assert content_type in response.headers.get("Content-Type", "")
+            assert marker in await response.text()
+
+        response = await self.client.get("/")
+        html = await response.text()
+        assert 'href="/webui.css"' in html
+        assert 'src="/webui.js"' in html
+        assert 'href="/" aria-current="page"' in html
+        assert 'href="/multi-camera">Multi-stream</a>' in html
+
+        response = await self.client.get("/multi-camera")
+        assert response.status == 200
+        html = await response.text()
+        assert 'href="/webui.css"' in html
+        assert 'src="/webui.js"' in html
+        assert 'href="/multi-camera" aria-current="page"' in html
+        assert 'href="/">Single camera</a>' in html
+
+        # The shared routes expose only the two intended static assets.
+        response = await self.client.get("/webui.html")
+        assert response.status == 404
+
     async def test_no_404_on_common_paths(self):
         """Test that common paths don't return 404."""
         # Test only paths that should actually work

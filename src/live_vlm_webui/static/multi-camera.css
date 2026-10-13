@@ -1,0 +1,143 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Multi-stream layout only. Native colors, forms, panels, and buttons live in webui.css. */
+.multi-stream-page [hidden] { display: none !important; }
+.multi-stream-page .container { height: auto; min-height: calc(100vh - var(--webui-header-height, 80px)); align-items: stretch; }
+.multi-stream-page .sidebar { flex: 0 0 350px; width: 350px; max-height: calc(100vh - var(--webui-header-height, 80px)); position: sticky; top: var(--webui-header-height, 80px); }
+.multi-stream-page .main-content { flex: 1; min-width: 0; overflow: visible; padding: 24px; }
+.multi-stream-page .panel-header { list-style: none; }
+.multi-stream-page .panel-header::-webkit-details-marker { display: none; }
+.multi-stream-page .panel:not([open]) .panel-header { border-bottom: 0; }
+.multi-stream-page .panel:not([open]) .panel-toggle { transform: rotate(-90deg); }
+.multi-stream-page .panel-content { max-height: none; }
+.multi-stream-page .panel-content > .btn { margin-bottom: 12px; }
+.multi-stream-page :is(button, a, input, select, textarea, summary):focus-visible { outline: 2px solid var(--accent-color); outline-offset: 3px; }
+.multi-stream-page :is(input[type="url"], input[type="password"]) { width: 100%; background: var(--bg-tertiary); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; padding: 10px 12px; font: inherit; font-size: 13px; }
+.multi-stream-page input[type="range"] { width: 100%; accent-color: var(--accent-color); }
+.multi-stream-page input[type="checkbox"] { accent-color: var(--accent-color); }
+.multi-stream-page .hint { font-size: 12px; line-height: 1.5; color: var(--text-muted); margin: 8px 0 12px; overflow-wrap: anywhere; }
+.multi-stream-page .hint:last-child { margin-bottom: 0; }
+.multi-stream-page .input-action { display: flex; gap: 8px; }
+.multi-stream-page .input-action input { min-width: 0; }
+.multi-stream-page .input-action .btn { width: 38px; flex: 0 0 38px; padding: 8px; }
+.multi-stream-page .settings-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.multi-stream-page .advanced { margin: 0 0 14px; }
+.multi-stream-page :is(.advanced, .camera-prompt, .camera-details, .demo-note) > summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); padding: 8px 0; }
+.multi-stream-page :is(.advanced, .camera-details)[open] > summary { margin-bottom: 8px; }
+.multi-stream-page .feature-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.multi-stream-page .feature-toggle > span { display: flex; align-items: center; gap: 6px; }
+.multi-stream-page .feature-toggle input { width: 16px; height: 16px; }
+.multi-stream-page .range-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); }
+.multi-stream-page .disabled-group { opacity: .55; }
+.multi-stream-page .runtime-status { font-size: 12px; line-height: 1.5; margin: 8px 0 12px; color: var(--text-muted); }
+.multi-stream-page .runtime-status.available { color: var(--accent-color); }
+.multi-stream-page .runtime-status.unavailable, .multi-stream-page .error-text { color: var(--error-color); }
+.multi-stream-page .stream-layout { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; }
+.multi-stream-page .camera-count { display: flex; gap: 8px; }
+.multi-stream-page .camera-count .btn { width: auto; white-space: nowrap; }
+.multi-stream-page .camera-count [aria-pressed="true"] { border-color: var(--accent-color); color: var(--accent-color); }
+.multi-stream-page .stream-toolbar { scroll-margin-top: calc(var(--webui-header-height, 80px) + 12px); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; }
+.multi-stream-page .stream-toolbar h2 { font-size: 18px; font-weight: 600; }
+.multi-stream-page .stream-toolbar .hint { margin: 4px 0 0; }
+.multi-stream-page .toolbar-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.multi-stream-page .toolbar-actions .btn { width: auto; }
+.multi-stream-page .notice { padding: 12px 16px; margin-bottom: 16px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
+.multi-stream-page .notice { border-left: 3px solid var(--accent-color); }
+.multi-stream-page .camera-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 20px; }
+.multi-stream-page .camera-card { min-width: 0; margin: 0; }
+.multi-stream-page .camera-heading { gap: 8px; padding: 12px 16px; cursor: default; }
+.multi-stream-page .camera-heading:hover { background: transparent; }
+.multi-stream-page .camera-heading h2 { font-size: 14px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.multi-stream-page .camera-state { font-size: 10px; padding: 4px 8px; flex-shrink: 0; }
+.multi-stream-page .status-badge.error { background: var(--bg-tertiary); color: var(--error-color); }
+.multi-stream-page .source-controls { padding: 14px 16px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 12px; border-bottom: 1px solid var(--border-color); }
+.multi-stream-page .source-controls > div { min-width: 0; }
+.multi-stream-page .source-controls select { text-overflow: ellipsis; }
+.multi-stream-page .video-stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; overflow: hidden; }
+.multi-stream-page .video-stage video { width: 100%; height: 100%; object-fit: contain; }
+.multi-stream-page .video-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; color: #999; font-size: 13px; pointer-events: none; }
+.multi-stream-page .video-fps, .multi-stream-page .recorded-label { position: absolute; top: 8px; padding: 4px 6px; background: rgba(0, 0, 0, .75); border-radius: 4px; color: #fff; font-size: 10px; line-height: 1.2; }
+.multi-stream-page .video-fps { right: 8px; }
+.multi-stream-page .recorded-label { left: 8px; }
+.multi-stream-page .play-video { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: auto; }
+.multi-stream-page .camera-insights { padding: 14px 16px; }
+.multi-stream-page .camera-insights:focus-visible { outline: 2px solid var(--accent-color); outline-offset: -2px; }
+.multi-stream-page .description-heading, .multi-stream-page .insight-footer { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; }
+.multi-stream-page .insight-label { color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+.multi-stream-page .segmentation-metrics, .multi-stream-page .vlm-metrics { color: var(--text-muted); font-size: 11px; line-height: 1.5; }
+.multi-stream-page .observation-status { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; color: var(--text-muted); font-size: 11px; line-height: 1.5; margin-top: 6px; }
+.multi-stream-page .analyzing-badge { color: var(--accent-color); }
+.multi-stream-page .temporal-context { color: var(--text-secondary); overflow-wrap: anywhere; }
+.multi-stream-page .camera-response { font-size: 14px; line-height: 1.6; color: var(--text-primary); padding: 8px 0; min-height: 56px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.multi-stream-page .observations-block { border-top: 1px solid var(--border-color); padding-top: 10px; }
+.multi-stream-page .recent-observations { list-style: none; margin: 8px 0 0; padding: 0; }
+.multi-stream-page .recent-observations li { font-size: 12px; color: var(--text-muted); line-height: 1.5; margin: 6px 0; }
+.multi-stream-page .recent-observations time { font-variant-numeric: tabular-nums; margin-right: 6px; }
+.multi-stream-page .camera-prompt { border-top: 1px solid var(--border-color); margin-top: 10px; padding-top: 4px; }
+.multi-stream-page .camera-prompt textarea { min-height: 60px; }
+.multi-stream-page .advanced:last-child { margin-bottom: 0; }
+.multi-stream-page .camera-actions { display: flex; gap: 8px; }
+.multi-stream-page .camera-actions > .btn { margin: 0; padding: 10px 8px; }
+.multi-stream-page #vlm-controls { margin-top: 14px; }
+.multi-stream-page .camera-details > summary { width: fit-content; }
+.multi-stream-page .insight-footer { gap: 4px 8px; color: var(--text-muted); font-size: 11px; line-height: 1.5; }
+.multi-stream-page .insight-footer .error-text { overflow-wrap: anywhere; }
+.multi-stream-page .demo-note { margin-top: 12px; }
+.multi-stream-page .demo-note > summary { padding: 4px 0; width: fit-content; }
+.multi-stream-page .presentation-attribution a { color: var(--accent-color); }
+.multi-stream-page.streams-active .source-controls,
+.multi-stream-page.streams-active .camera-prompt { display: none; }
+/* Focus view is opt-in; keep the native header and stop control visible. */
+.multi-stream-page.presentation-view .sidebar,
+.multi-stream-page.presentation-view .source-controls,
+.multi-stream-page.presentation-view .camera-prompt { display: none; }
+.multi-stream-page.presentation-view .main-content { padding: 16px 24px; }
+.multi-stream-page.presentation-view .stream-toolbar { margin-bottom: 12px; }
+.multi-stream-page.presentation-view .camera-grid { gap: 12px; }
+.multi-stream-page.presentation-view .camera-insights { padding: 10px 14px; }
+.multi-stream-page.presentation-view .camera-response { min-height: 48px; padding: 6px 0 0; font-size: 13px; line-height: 1.5; }
+.multi-stream-page.presentation-view .camera-grid[data-count="4"] .video-stage { aspect-ratio: auto; height: clamp(120px, calc((100vh - 560px) / 2), 360px); }
+@media (max-width: 1200px) {
+  .multi-stream-page .sidebar { width: 300px; flex-basis: 300px; padding: 16px; }
+  .multi-stream-page .main-content { padding: 20px; }
+  .multi-stream-page .source-controls { grid-template-columns: 1fr; }
+  .multi-stream-page .camera-heading { flex-wrap: wrap; }
+}
+@media (max-width: 900px) {
+  .multi-stream-page .container { flex-direction: column; height: auto; }
+  .multi-stream-page .sidebar { position: static; width: 100%; max-height: none; flex-basis: auto; border-right: 0; border-bottom: 1px solid var(--border-color); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .multi-stream-page .sidebar .panel { margin: 0; }
+  .multi-stream-page .settings-note { grid-column: 1 / -1; }
+  .multi-stream-page .main-content { overflow: visible; }
+}
+@media (max-width: 600px) {
+  .multi-stream-page .sidebar { display: block; padding: 12px; }
+  .multi-stream-page .sidebar .panel { margin-bottom: 12px; }
+  .multi-stream-page .main-content, .multi-stream-page.presentation-view .main-content { padding: 12px; }
+  .multi-stream-page .camera-grid { grid-template-columns: 1fr; gap: 16px; }
+  .multi-stream-page .stream-toolbar { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .multi-stream-page .toolbar-actions { width: 100%; }
+  .multi-stream-page .toolbar-actions .btn { flex: 1; padding: 10px 12px; white-space: nowrap; }
+  .multi-stream-page.presentation-view .camera-grid[data-count="4"] .video-stage { aspect-ratio: 16 / 9; height: auto; }
+}
+
+/* Four streams fit the desktop viewport; setup keeps its normal document flow. */
+@media (min-width: 901px) {
+  .multi-stream-page .camera-grid[data-count="4"] .video-stage { aspect-ratio: auto; height: clamp(120px, 22dvh, 240px); }
+  .multi-stream-page.compact-four-view .container { height: calc(100dvh - var(--webui-header-height, 80px)); min-height: 0; }
+  .multi-stream-page.compact-four-view .main-content { display: flex; flex-direction: column; min-height: 0; padding: 12px 16px; overflow: hidden; }
+  .multi-stream-page.compact-four-view .stream-toolbar { flex: 0 0 auto; gap: 8px; margin-bottom: 8px; }
+  .multi-stream-page.compact-four-view .source-controls,
+  .multi-stream-page.compact-four-view .camera-prompt { display: none; }
+  .multi-stream-page.compact-four-view .notice { flex: 0 0 auto; padding: 6px 10px; margin-bottom: 8px; max-height: 60px; overflow-y: auto; }
+  .multi-stream-page.compact-four-view .camera-grid { flex: 1 1 0; min-height: 0; grid-template-rows: repeat(2, minmax(0, 1fr)); align-items: stretch; gap: 10px; }
+  .multi-stream-page.compact-four-view .camera-card { display: flex; flex-direction: column; min-height: 0; }
+  .multi-stream-page.compact-four-view .camera-heading { flex: 0 0 auto; padding: 6px 10px; }
+  .multi-stream-page.compact-four-view .camera-heading h2 { font-size: 13px; }
+  .multi-stream-page.compact-four-view .camera-grid[data-count="4"] .video-stage { flex: 1 1 0; height: auto; min-height: 80px; aspect-ratio: auto; }
+  .multi-stream-page.compact-four-view .camera-insights { flex: 0 1 clamp(112px, 16dvh, 150px); min-height: 0; padding: 6px 10px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+  .multi-stream-page.compact-four-view .observation-status { margin-top: 3px; gap: 2px 6px; }
+  .multi-stream-page.compact-four-view .camera-response { min-height: 0; padding: 4px 0; font-size: 13px; line-height: 1.4; }
+  .multi-stream-page.compact-four-view .observations-block { padding-top: 6px; }
+  .multi-stream-page.compact-four-view .recent-observations { margin-top: 4px; }
+  .multi-stream-page.compact-four-view .demo-note { flex: 0 0 auto; max-height: 90px; overflow-y: auto; margin-top: 6px; }
+}

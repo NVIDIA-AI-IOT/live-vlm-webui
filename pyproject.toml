@@ -55,6 +55,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+segmentation = [
+    "ultralytics==8.4.173",
+    "clip @ https://github.com/ultralytics/CLIP/archive/a13192f8cb767260d7dfd98c843b0716593169e7.zip",
+]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21.0",

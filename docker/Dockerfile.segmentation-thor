@@ -1,0 +1,17 @@
+# Tested on Jetson AGX Thor, L4T R39.2.1 / driver 595.78.
+ARG SEGMENTATION_BASE_IMAGE=vllm/vllm-openai@sha256:aff65d7198dd284c37dd0a18a606544cc5e92bfb0d5eb608b77e8b8f1c6b8b0d
+FROM ${SEGMENTATION_BASE_IMAGE}
+USER root
+RUN python3 -m venv --system-site-packages /opt/live-vlm-venv
+ENV PATH="/opt/live-vlm-venv/bin:${PATH}" \
+    YOLO_AUTOINSTALL=False \
+    YOLO_CONFIG_DIR=/tmp/live-vlm-yolo \
+    LIVE_VLM_SEGMENTATION_MODEL=/app/.models/yoloe-26s-seg.pt
+WORKDIR /app
+COPY pyproject.toml README.md LICENSE ./
+COPY src ./src
+RUN python3 -m pip install --no-cache-dir 'cryptography<49' 'onnx==1.19.1' -e '.[segmentation]'
+RUN mkdir -p /tmp/live-vlm-yolo && chmod 1777 /tmp/live-vlm-yolo
+EXPOSE 8090
+ENTRYPOINT ["live-vlm-webui"]
+CMD ["--host", "127.0.0.1", "--port", "8090"]

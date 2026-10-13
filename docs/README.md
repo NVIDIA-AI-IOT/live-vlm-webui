@@ -7,6 +7,8 @@ User-facing and contributor documentation:
 ### User Documentation
 - **`troubleshooting.md`** - Common issues and solutions
 - **`setup/`** - Setup guides for different platforms
+- **[Kiosk setup](setup/kiosk.md)** - Upstream desktop kiosk and optional multi-stream installation
+- **[Jetson Thor multi-stream](setup/thor-deployment.md)** - Reproducible model and kiosk setup
 - **`usage/`** - Usage guides and operational information
   - **`gpu-monitoring.md`** - Understanding GPU utilization behavior
   - **`advanced-configuration.md`** - Advanced configuration options
@@ -57,4 +59,3 @@ These provide context for your development work but aren't shared with other dev
 - 📝 Addresses specific issues ("your Docker issue")
 - 📝 Context from AI development sessions
 - 📝 Decision rationale for specific features
-

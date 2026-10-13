@@ -1,0 +1,10 @@
+[Unit]
+Description=Live VLM WebUI kiosk browser
+PartOf=graphical-session.target
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart="%h/.local/lib/live-vlm-webui-kiosk/start_kiosk_browser.sh"
+ExecStartPost="%h/.local/lib/live-vlm-webui-kiosk/start_kiosk_browser.sh" --configure-window
+Restart=always
+RestartSec=5

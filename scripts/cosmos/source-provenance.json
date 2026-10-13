@@ -1,0 +1,26 @@
+{
+  "origin": "Locally authored portable Cosmos3-Nano INT4 reproduction helpers",
+  "validation": "Original pipeline GPU validated; repository setup adaptation requires a fresh target test",
+  "files": {
+    "serve_cosmos3_nano_edgellm.py": "740249cf77ce7f9fcd2091b8c1bc124b989709f751794b915e046a5a21cdad8f",
+    "build_encoder_cache_compat.py": "af72aa8f3acd2ba0d2d5b7b93fe4a736e01b9387dda8addfb2487491a8445227",
+    "check_encoder_cache_compat.py": "f332ebc7c775e601e47426c5d11bd5f42511fc941bf3c5f81e23016aef152cfd",
+    "disable_encoder_cache.py": "d5c7baf80dff0392df85661f16e3ab27f8123f945b9df4a30e41b6a519f74030",
+    "edgellm_cache_config_compat.cpp": "f04d49e2098e37165f27a0479c0fd0fef1bd7e26f26da09857d51952440fec47",
+    "edgellm_stop_compat.py": "5501ea3f4f471c975e8324c69526fc1047ded715375f021b12027d957301726c",
+    "extract_cosmos3_nano_reasoner.py": "d8f4edcb7a7d1271c2aa05f3c08af2c7d9ace278d8af82605423da455217fadc",
+    "cosmos3_nano_extraction_reference.json": "567210285ef8a26d23fba30938e18db0ae3cbb6a36f5cc996bee8410f56b846f",
+    "quantize_cosmos3_nano_int4.py": "b4d864ee1bc5647e2d8c735e2d465d9097ca9807ed66508870fe1af24215bcfd",
+    "evaluate_cosmos3_nano_int4.py": "b820dfa81d9dfd3344879b5c7fbd33d19898f8e46ef2eaf0025a9e8246ddd66d",
+    "inspect_cosmos3_nano_int4.py": "dd652b79181966c4622546d025cd34169f8a83488cbf7a53257ed641e383b01a",
+    "fix_processor_bounds.py": "cbdfa4421a58e777c9c673c8ee8c9e3aa52cbb8b87071272ab8f44a65016d561",
+    "requirements-runtime.txt": "310edfdd08811e5de781ef02479ef4e906afc1277469fd54be00221814043ea8",
+    "requirements-quantization.txt": "4f19567c55bee4575c9f905720bceb8bae210b1ac9c0a7c6b06ea75e8b7efc8a"
+  },
+  "repository_adaptations": [
+    "Included only source helpers needed for runtime installation and public model reconstruction; no dataset/model/runtime binaries",
+    "Corrected runtime requirements documentation link for this repository",
+    "Formatted Python helper source with the repository Black configuration; runtime behavior unchanged",
+    "Applied import/style lint fixes and explicit subprocess return-code handling; preserved native failure receipts"
+  ]
+}

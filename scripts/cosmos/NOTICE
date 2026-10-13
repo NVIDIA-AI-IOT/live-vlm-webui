@@ -1,0 +1,21 @@
+These optional Cosmos helpers are adapted from the locally authored Cosmos3-Nano
+Reasoner INT4 reproduction scripts. They retain OpenMDW 1.1 (LICENSE), separately
+from the application's Apache-2.0 license. No model weights or native binaries
+are included. The parent application license does not replace these terms.
+
+cosmos3_nano_extraction_reference.json retains Qwen's Apache-2.0 license
+(LICENSE-QWEN-METADATA). It contains architecture/configuration and tensor-name
+metadata from Qwen/Qwen3-VL-8B-Instruct at revision
+0c351dd01ed87e9c1b53cbc748cba10e6187ff3b, combined into a reference sidecar.
+No Qwen model weights are included or substituted for NVIDIA weights.
+
+Source model: https://huggingface.co/nvidia/Cosmos3-Nano
+Pinned source revision: e59a53c25979a090fa8706c9acc0c254a6e89b92
+The separately downloaded model retains its own OpenMDW license and notices.
+
+The cache adapter compiles against the separately downloaded, unchanged NVIDIA
+TensorRT-Edge-LLM ContextCacheConfig header, under Apache-2.0, Copyright (c) 2026
+NVIDIA CORPORATION & AFFILIATES. Edge commit:
+95515c2f87fba8982db5a519f9022277667b3cc9
+The pybind11 build dependency retains its BSD-3-Clause license.
+Neither dependency's source nor binary payload is vendored here.

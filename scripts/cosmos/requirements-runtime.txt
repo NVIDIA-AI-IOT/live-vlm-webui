@@ -1,0 +1,16 @@
+# Critical Python versions, not a complete platform installation/transitive lock.
+# Requires JetPack7.2/L4T39.2.1, CUDA13.2, platform TensorRT10.16.2.10,
+# Linux aarch64/glibc2.39 and CPython3.12. Do NOT replace platform TRT with
+# an unpinned `pip install tensorrt`. See ../../docs/development/cosmos-edge-demo.md.
+tensorrt-edgellm[server,server-tools]==0.11.0
+transformers==5.14.1
+safetensors==0.8.0
+numpy==2.2.6
+huggingface-hub==1.12.0
+cuda-python==13.2.0
+fastapi==0.139.2
+uvicorn==0.51.0
+av==17.1.0
+
+# CPU build of the typed encoder-cache configuration companion (no CUDA compiler).
+pybind11==3.0.4

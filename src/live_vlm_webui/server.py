@@ -19,26 +19,36 @@ Main server that handles WebRTC connections and serves the web interface
 """
 
 import asyncio
+import ipaddress
 import json
 import logging
 import os
 import signal
 import socket
 import subprocess
+
 import aiohttp
 from aiohttp import web
 from aiortc import (
-    RTCPeerConnection,
-    RTCSessionDescription,
     RTCConfiguration,
     RTCIceServer,
+    RTCPeerConnection,
+    RTCSessionDescription,
 )
 from aiortc.contrib.media import MediaRelay
 
-from .vlm_service import VLMService
-from .video_processor import VideoProcessorTrack
 from .gpu_monitor import create_monitor
+from .multi_camera import (
+    MULTI_CAMERA_KEY,
+    VLM_FIELDS,
+    MultiCameraVLMService,
+    register_multi_camera,
+    validate_id,
+)
 from .rtsp_track import RTSPVideoTrack
+from .temporal_buffer import TemporalConfig
+from .video_processor import VideoProcessorTrack
+from .vlm_service import VLMService
 
 # Configure logging
 logging.basicConfig(
@@ -51,6 +61,9 @@ relay = MediaRelay()
 pcs = set()
 vlm_service = None
 websockets = set()  # Track active WebSocket connections
+websocket_streams = {}
+SINGLE_PROCESSORS_KEY = web.AppKey("single_processors", dict)
+TEMPORAL_DEFAULT_KEY = web.AppKey("temporal_default", dict)
 gpu_monitor = None  # GPU monitoring instance
 gpu_monitor_task = None  # Background task for GPU monitoring
 rtsp_tracks = {}  # Track active RTSP streams {session_id: (rtsp_track, processor_track)}
@@ -64,6 +77,17 @@ def is_port_available(port, host="0.0.0.0"):
         sock.close()
         return True
     except OSError:
+        return False
+
+
+def is_loopback_host(host):
+    """Return True when a server host value is limited to localhost."""
+    normalized = (host or "").strip().lower().strip("[]")
+    if normalized == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
         return False
 
 
@@ -155,14 +179,36 @@ async def index(request):
     return web.Response(content_type="text/html", text=content)
 
 
+async def multi_camera_asset(request):
+    """Serve the multi-camera page and its local assets."""
+    names = {
+        "/multi-camera": "multi-camera.html",
+        "/multi-camera.js": "multi-camera.js",
+        "/multi-camera.css": "multi-camera.css",
+    }
+    return web.FileResponse(os.path.join(os.path.dirname(__file__), "static", names[request.path]))
+
+
+async def shared_webui_asset(request):
+    """Serve the shared single-camera and multi-stream shell assets."""
+    names = {"/webui.css": "webui.css", "/webui.js": "webui.js"}
+    return web.FileResponse(os.path.join(os.path.dirname(__file__), "static", names[request.path]))
+
+
 async def models(request):
-    """Return available models from the VLM API"""
+    """Return available models and the server's configured request backend."""
+    configuration = {
+        "backend": getattr(vlm_service, "backend", "openai"),
+        "api_base": vlm_service.api_base if vlm_service else None,
+        "configured_model": vlm_service.model if vlm_service else None,
+    }
     try:
         # Check if custom API base and key are provided in query params
         api_base = request.rel_url.query.get("api_base")
         api_key = request.rel_url.query.get("api_key")
 
         if api_base:
+            configuration["queried_api_base"] = api_base
             # Query models from the provided API endpoint
             from openai import AsyncOpenAI
 
@@ -173,7 +219,8 @@ async def models(request):
                 for model in models_response.data
             ]
             return web.Response(
-                content_type="application/json", text=json.dumps({"models": models_list})
+                content_type="application/json",
+                text=json.dumps({"models": models_list, **configuration}),
             )
         elif vlm_service:
             # Use the server's VLM service
@@ -183,12 +230,15 @@ async def models(request):
                 for model in models_response.data
             ]
             return web.Response(
-                content_type="application/json", text=json.dumps({"models": models_list})
+                content_type="application/json",
+                text=json.dumps({"models": models_list, **configuration}),
             )
         else:
             return web.Response(
                 content_type="application/json",
-                text=json.dumps({"models": [], "error": "VLM service not initialized"}),
+                text=json.dumps(
+                    {"models": [], "error": "VLM service not initialized", **configuration}
+                ),
             )
     except Exception as e:
         logger.error(f"Error fetching models: {e}")
@@ -200,12 +250,14 @@ async def models(request):
                     {
                         "models": [
                             {"id": vlm_service.model, "name": vlm_service.model, "current": True}
-                        ]
+                        ],
+                        **configuration,
                     }
                 ),
             )
         return web.Response(
-            content_type="application/json", text=json.dumps({"models": [], "error": str(e)})
+            content_type="application/json",
+            text=json.dumps({"models": [], "error": str(e), **configuration}),
         )
 
 
@@ -255,10 +307,94 @@ async def detect_services(request):
     )
 
 
+def _single_services(request, stream_id):
+    services = [vlm_service] if vlm_service is not None else []
+    services.extend(
+        processor.vlm_service
+        for processor, owner in request.app[SINGLE_PROCESSORS_KEY].items()
+        if owner == stream_id and processor.vlm_service is not None
+    )
+    return services
+
+
+def _reset_single_context(request, stream_id):
+    for processor, owner in request.app[SINGLE_PROCESSORS_KEY].items():
+        if owner == stream_id:
+            processor.reset_temporal()
+
+
+def _single_processor(request, track, temporal, stream_id, source_generation_provider=None):
+    service = None
+    if vlm_service is not None:
+        service = MultiCameraVLMService(
+            semaphore=request.app[MULTI_CAMERA_KEY].semaphore,
+            on_result=lambda _text, _metrics: None,
+            **{name: getattr(vlm_service, name) for name in VLM_FIELDS},
+        )
+    processor = VideoProcessorTrack(
+        track,
+        service,
+        temporal=temporal,
+        source_generation_provider=source_generation_provider,
+        text_callback=lambda text, metrics: broadcast_text_update(
+            text, metrics, stream_id=stream_id
+        ),
+        temporal_callback=lambda status: _broadcast_stream_message(
+            {"type": "temporal_status", **status}, stream_id
+        ),
+    )
+    request.app[SINGLE_PROCESSORS_KEY][processor] = stream_id
+    return processor
+
+
+async def _close_single_processor(app, processor):
+    task = getattr(processor, "_single_close_task", None)
+    if task is None:
+        if processor not in app[SINGLE_PROCESSORS_KEY]:
+            return
+
+        async def release():
+            try:
+                await processor.aclose()
+            finally:
+                # The relay/source is separately owned. Close only this API client.
+                if processor.vlm_service is not None:
+                    await processor.vlm_service.client.close()
+                app[SINGLE_PROCESSORS_KEY].pop(processor, None)
+
+        task = asyncio.create_task(release())
+        processor._single_close_task = task
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        # Peer/source/shutdown can race. One owner completes cancellation and
+        # releases the API client before another request can reuse the source.
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                continue
+        task.result()
+        raise
+
+
+async def _close_single_processors(app):
+    await asyncio.gather(
+        *(_close_single_processor(app, processor) for processor in list(app[SINGLE_PROCESSORS_KEY]))
+    )
+
+
 async def websocket_handler(request):
     """Handle WebSocket connections for text updates"""
+    stream_id = request.query.get("stream_id")
+    if stream_id is not None:
+        try:
+            validate_id(stream_id, "stream_id")
+        except ValueError as exc:
+            return web.json_response({"error": str(exc)}, status=400)
     ws = web.WebSocketResponse()
     await ws.prepare(request)
+    websocket_streams[ws] = stream_id
 
     websockets.add(ws)
     logger.info(f"WebSocket client connected. Total clients: {len(websockets)}")
@@ -274,9 +410,20 @@ async def websocket_handler(request):
                     "type": "server_config",
                     "model": vlm_service.model,
                     "api_base": vlm_service.api_base,
+                    "backend": getattr(vlm_service, "backend", "openai"),
                     "prompt": vlm_service.prompt,
+                    "max_tokens": vlm_service.max_tokens,
+                    "process_every": VideoProcessorTrack.process_every_n_frames,
+                    "temporal": request.app[TEMPORAL_DEFAULT_KEY]["config"].as_dict(),
                 }
             )
+
+        await ws.send_json(
+            {
+                "type": "temporal_config",
+                "temporal": request.app[TEMPORAL_DEFAULT_KEY]["config"].as_dict(),
+            }
+        )
 
         # Keep connection alive and handle incoming messages
         async for msg in ws:
@@ -284,11 +431,32 @@ async def websocket_handler(request):
                 try:
                     data = json.loads(msg.data)
 
-                    if data.get("type") == "update_prompt":
+                    if data.get("type") == "update_temporal":
+                        try:
+                            temporal = TemporalConfig.from_dict(data.get("temporal"))
+                            if any(
+                                owner == stream_id and processor.readyState == "live"
+                                for processor, owner in request.app[SINGLE_PROCESSORS_KEY].items()
+                            ):
+                                raise ValueError(
+                                    "Stop the stream before changing video understanding"
+                                )
+                            request.app[TEMPORAL_DEFAULT_KEY]["config"] = temporal
+                            await ws.send_json(
+                                {"type": "temporal_updated", "temporal": temporal.as_dict()}
+                            )
+                        except (TypeError, ValueError) as exc:
+                            await ws.send_json(
+                                {"type": "error", "error": str(exc), "text": str(exc)}
+                            )
+
+                    elif data.get("type") == "update_prompt":
                         new_prompt = data.get("prompt", "").strip()
                         max_tokens = data.get("max_tokens")
                         if new_prompt and vlm_service:
-                            vlm_service.update_prompt(new_prompt, max_tokens)
+                            for service in _single_services(request, stream_id):
+                                service.update_prompt(new_prompt, max_tokens)
+                            _reset_single_context(request, stream_id)
                             logger.info(f"Prompt updated: {new_prompt}, max_tokens: {max_tokens}")
 
                             # Confirm to client
@@ -307,24 +475,28 @@ async def websocket_handler(request):
 
                         if new_model and vlm_service:
                             # Update model
-                            vlm_service.model = new_model
+                            for service in _single_services(request, stream_id):
+                                service.model = new_model
 
                             # Update API settings if provided
                             # User may have switched to different service (Ollama ↔ vLLM)
                             if api_base:
-                                vlm_service.update_api_settings(
-                                    api_base, api_key if api_key else None
-                                )
+                                for service in _single_services(request, stream_id):
+                                    service.update_api_settings(
+                                        api_base, api_key if api_key else None
+                                    )
                                 logger.info(f"Model updated: {new_model}, API: {api_base}")
                             else:
                                 logger.info(f"Model updated: {new_model}")
 
+                            _reset_single_context(request, stream_id)
                             # Confirm to client
                             await ws.send_json(
                                 {
                                     "type": "model_updated",
                                     "model": new_model,
                                     "api_base": vlm_service.api_base,
+                                    "backend": getattr(vlm_service, "backend", "openai"),
                                 }
                             )
 
@@ -333,8 +505,6 @@ async def websocket_handler(request):
                         try:
                             process_every = int(process_every)
                             if 1 <= process_every <= 3600:  # Up to 3600 frames (2 minutes @ 30fps)
-                                from .video_processor import VideoProcessorTrack
-
                                 old_value = VideoProcessorTrack.process_every_n_frames
                                 VideoProcessorTrack.process_every_n_frames = process_every
                                 logger.info(
@@ -357,8 +527,6 @@ async def websocket_handler(request):
                         try:
                             max_latency = float(max_latency)
                             if 0 <= max_latency <= 10.0:
-                                from .video_processor import VideoProcessorTrack
-
                                 old_value = VideoProcessorTrack.max_frame_latency
                                 VideoProcessorTrack.max_frame_latency = max_latency
                                 status = "disabled" if max_latency == 0 else f"{max_latency:.1f}s"
@@ -381,30 +549,25 @@ async def websocket_handler(request):
                 logger.error(f"WebSocket error: {ws.exception()}")
     finally:
         websockets.discard(ws)
+        websocket_streams.pop(ws, None)
         logger.info(f"WebSocket client disconnected. Total clients: {len(websockets)}")
 
     return ws
 
 
-def broadcast_text_update(text: str, metrics: dict):
-    """Broadcast text update and metrics to all connected WebSocket clients"""
-    if not websockets:
-        return
+def _broadcast_stream_message(message, stream_id=None):
+    encoded = json.dumps(message)
+    for ws in list(websockets):
+        # Unidentified legacy viewers share only the legacy None scope. Their
+        # source updates must never overwrite explicitly identified streams.
+        if ws.closed or websocket_streams.get(ws) != stream_id:
+            continue
+        asyncio.create_task(ws.send_str(encoded))
 
-    message = json.dumps({"type": "vlm_response", "text": text, "metrics": metrics})
 
-    # Send to all connected clients
-    dead_websockets = set()
-    for ws in websockets:
-        try:
-            # Use asyncio to send without blocking
-            asyncio.create_task(ws.send_str(message))
-        except Exception as e:
-            logger.error(f"Error sending to websocket: {e}")
-            dead_websockets.add(ws)
-
-    # Clean up dead connections
-    websockets.difference_update(dead_websockets)
+def broadcast_text_update(text: str, metrics: dict, *, stream_id=None):
+    """Send each stream's results to its own WebSocket viewer."""
+    _broadcast_stream_message({"type": "vlm_response", "text": text, "metrics": metrics}, stream_id)
 
 
 def broadcast_gpu_stats(stats: dict):
@@ -462,6 +625,15 @@ async def gpu_monitor_loop():
 async def offer(request):
     """Handle WebRTC offer from client (supports both webcam and RTSP)"""
     params = await request.json()
+    try:
+        temporal = TemporalConfig.from_dict(
+            params.get("temporal", request.app[TEMPORAL_DEFAULT_KEY]["config"])
+        )
+        stream_id = params.get("stream_id")
+        if stream_id is not None:
+            validate_id(stream_id, "stream_id")
+    except (TypeError, ValueError) as exc:
+        return web.json_response({"error": str(exc)}, status=400)
     offer_sdp = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
     rtsp_url = params.get("rtsp_url")  # Optional RTSP URL for IP camera mode
 
@@ -475,19 +647,54 @@ async def offer(request):
     pc = RTCPeerConnection(configuration=config)
     pcs.add(pc)
 
-    # Store RTSP track for cleanup
+    # A peer owns its processors and optional RTSP source until one complete
+    # teardown, even if negotiation or its caller is cancelled repeatedly.
     rtsp_cleanup_track = None
+    peer_processors = []
+    peer_close_task = None
+
+    async def close_peer():
+        nonlocal peer_close_task
+        if peer_close_task is None:
+
+            async def release():
+                actions = [
+                    lambda processor=processor: _close_single_processor(request.app, processor)
+                    for processor in peer_processors
+                ]
+                if rtsp_cleanup_track is not None:
+                    actions.append(getattr(rtsp_cleanup_track, "aclose", rtsp_cleanup_track.stop))
+                actions.append(pc.close)
+                try:
+                    for action in actions:
+                        try:
+                            result = action()
+                            if asyncio.iscoroutine(result):
+                                await result
+                        except Exception:  # Release remaining resources after a close failure.
+                            logger.exception("Single-camera peer cleanup failed")
+                finally:
+                    pcs.discard(pc)
+
+            peer_close_task = asyncio.create_task(release())
+        try:
+            await asyncio.shield(peer_close_task)
+        except asyncio.CancelledError:
+            while not peer_close_task.done():
+                try:
+                    await asyncio.shield(peer_close_task)
+                except asyncio.CancelledError:
+                    continue
+            peer_close_task.result()
+            raise
 
     @pc.on("connectionstatechange")
     async def on_connectionstatechange():
         logger.info(f"Connection state: {pc.connectionState}")
-        if pc.connectionState in ["failed", "closed"]:
-            # Clean up RTSP track if exists
-            if rtsp_cleanup_track:
-                rtsp_cleanup_track.stop()
-                logger.info("RTSP track stopped on connection close")
-            await pc.close()
-            pcs.discard(pc)
+        if pc.connectionState in ["failed", "closed"] and peer_close_task is None:
+            # Closing the peer also emits this event. Its existing cleanup owner
+            # must never await itself through that callback.
+            await close_peer()
 
     @pc.on("iceconnectionstatechange")
     async def on_iceconnectionstatechange():
@@ -499,67 +706,58 @@ async def offer(request):
     async def on_icegatheringstatechange():
         logger.info(f"ICE gathering state: {pc.iceGatheringState}")
 
-    # If RTSP URL provided, create RTSP track instead of waiting for browser track
-    if rtsp_url:
-        logger.info(f"Creating RTSP track for: {rtsp_url}")
-        try:
-            rtsp_track = RTSPVideoTrack(rtsp_url)
-            rtsp_cleanup_track = rtsp_track  # Store for cleanup
+    try:
+        # If RTSP URL provided, create a track instead of waiting for the browser.
+        if rtsp_url:
+            logger.info(f"Creating RTSP track for: {rtsp_url}")
+            try:
+                rtsp_track = RTSPVideoTrack(rtsp_url)
+                rtsp_cleanup_track = rtsp_track
 
-            # Wait for initial connection to get stream info
-            await asyncio.sleep(0.5)
-
-            # Wrap RTSP track with relay first (same pattern as webcam)
-            relayed_rtsp = relay.subscribe(rtsp_track)
-
-            processor_track = VideoProcessorTrack(
-                relayed_rtsp, vlm_service, text_callback=broadcast_text_update
-            )
-
-            # Add processor directly to peer connection
-            pc.addTrack(processor_track)
-            logger.info("Added RTSP processor track to peer connection")
-
-        except Exception as e:
-            logger.error(f"Failed to create RTSP track: {e}")
-            return web.Response(
-                status=500,
-                content_type="application/json",
-                text=json.dumps({"error": f"Failed to connect to RTSP stream: {str(e)}"}),
-            )
-    else:
-        # Webcam mode: wait for browser to send track
-        @pc.on("track")
-        def on_track(track):
-            logger.info(f"Received track: {track.kind}")
-
-            if track.kind == "video":
-                # Create processor track with VLM service and text callback
-                processor_track = VideoProcessorTrack(
-                    relay.subscribe(track), vlm_service, text_callback=broadcast_text_update
-                )
-
-                # Add processed track back to connection
+                # Include this setup wait in cancellation-owned teardown.
+                await asyncio.sleep(0.5)
+                # This peer is the sole reader. Consuming the owned source
+                # directly keeps reconnect generations paired with their frames.
+                processor_track = _single_processor(request, rtsp_track, temporal, stream_id)
+                peer_processors.append(processor_track)
                 pc.addTrack(processor_track)
-                logger.info("Added processed video track back to peer connection")
+                logger.info("Added RTSP processor track to peer connection")
+            except Exception as exc:
+                logger.error("Failed to create RTSP track: %s", exc)
+                await close_peer()
+                return web.json_response(
+                    {"error": f"Failed to connect to RTSP stream: {exc}"}, status=500
+                )
+        else:
 
-            @track.on("ended")
-            async def on_ended():
-                logger.info(f"Track {track.kind} ended")
+            @pc.on("track")
+            def on_track(track):
+                logger.info(f"Received track: {track.kind}")
+                if peer_close_task is not None:
+                    track.stop()
+                    return
+                if track.kind == "video":
+                    processor_track = _single_processor(
+                        request, relay.subscribe(track), temporal, stream_id
+                    )
+                    peer_processors.append(processor_track)
+                    pc.addTrack(processor_track)
+                    logger.info("Added processed video track back to peer connection")
 
-    # Handle offer
-    await pc.setRemoteDescription(offer_sdp)
+                @track.on("ended")
+                async def on_ended():
+                    logger.info(f"Track {track.kind} ended")
+                    if track.kind == "video":
+                        await _close_single_processor(request.app, processor_track)
 
-    # Create answer - this must happen after tracks are added
-    answer = await pc.createAnswer()
-    await pc.setLocalDescription(answer)
-
-    logger.info(f"Created answer with {len(pc.getTransceivers())} transceivers")
-
-    return web.Response(
-        content_type="application/json",
-        text=json.dumps({"sdp": pc.localDescription.sdp, "type": pc.localDescription.type}),
-    )
+        await pc.setRemoteDescription(offer_sdp)
+        answer = await pc.createAnswer()
+        await pc.setLocalDescription(answer)
+        logger.info(f"Created answer with {len(pc.getTransceivers())} transceivers")
+        return web.json_response({"sdp": pc.localDescription.sdp, "type": pc.localDescription.type})
+    except BaseException:
+        await close_peer()
+        raise
 
 
 async def rtsp_start(request):
@@ -575,6 +773,15 @@ async def rtsp_start(request):
         data = await request.json()
         rtsp_url = data.get("rtsp_url")
         session_id = data.get("session_id", "default")
+        try:
+            temporal = TemporalConfig.from_dict(
+                data.get("temporal", request.app[TEMPORAL_DEFAULT_KEY]["config"])
+            )
+            stream_id = data.get("stream_id")
+            if stream_id is not None:
+                validate_id(stream_id, "stream_id")
+        except (TypeError, ValueError) as exc:
+            return web.json_response({"error": str(exc)}, status=400)
 
         if not rtsp_url:
             logger.warning("RTSP start request missing rtsp_url")
@@ -603,9 +810,8 @@ async def rtsp_start(request):
             )
 
         # Create processor track (same as WebRTC path)
-        processor_track = VideoProcessorTrack(
-            rtsp_track, vlm_service, text_callback=broadcast_text_update
-        )
+        processor_track = _single_processor(request, rtsp_track, temporal, stream_id)
+        processor_track._single_app = request.app
 
         # Start background task to consume frames
         async def consume_frames():
@@ -622,6 +828,8 @@ async def rtsp_start(request):
                         logger.error(f"Error consuming RTSP frame for {session_id}: {e}")
                         break
             finally:
+                await _close_single_processor(request.app, processor_track)
+                rtsp_track.stop()
                 logger.info(f"Frame consumption stopped for {session_id}")
 
         frame_task = asyncio.create_task(consume_frames())
@@ -726,7 +934,11 @@ async def _stop_rtsp_session(session_id: str):
 
         # Stop tracks
         try:
-            processor_track.stop()
+            single_app = getattr(processor_track, "_single_app", None)
+            if single_app is not None:
+                await _close_single_processor(single_app, processor_track)
+            else:
+                await processor_track.aclose()
         except Exception as e:
             logger.warning(f"Error stopping processor track: {e}")
 
@@ -784,6 +996,7 @@ async def on_shutdown(app):
     for ws in list(websockets):
         await ws.close()
     websockets.clear()
+    websocket_streams.clear()
 
     # Close all RTSP streams
     for session_id in list(rtsp_tracks.keys()):
@@ -810,7 +1023,14 @@ async def create_app(test_mode=False):
     """
     # Create web application
     app = web.Application()
+    app[SINGLE_PROCESSORS_KEY] = {}
+    app[TEMPORAL_DEFAULT_KEY] = {"config": TemporalConfig()}
+    app.on_cleanup.append(_close_single_processors)
     app.router.add_get("/", index)
+    for path in ("/webui.css", "/webui.js"):
+        app.router.add_get(path, shared_webui_asset)
+    for path in ("/multi-camera", "/multi-camera.js", "/multi-camera.css"):
+        app.router.add_get(path, multi_camera_asset)
     app.router.add_get("/models", models)
     app.router.add_get("/detect-services", detect_services)
     app.router.add_get("/ws", websocket_handler)
@@ -820,6 +1040,8 @@ async def create_app(test_mode=False):
     app.router.add_post("/api/rtsp/start", rtsp_start)
     app.router.add_post("/api/rtsp/stop", rtsp_stop)
     app.router.add_get("/api/rtsp/status", rtsp_status)
+
+    register_multi_camera(app, defaults_provider=lambda: vlm_service)
 
     # Serve static files (images, etc.)
     # Always serve from static/images within the package (works for both pip and dev installs)
@@ -875,8 +1097,8 @@ def get_app_config_dir():
 
 def generate_self_signed_cert(cert_path="cert.pem", key_path="key.pem"):
     """Generate a self-signed SSL certificate if it doesn't exist"""
-    import subprocess
     import os
+    import subprocess
 
     if os.path.exists(cert_path) and os.path.exists(key_path):
         return True
@@ -921,6 +1143,7 @@ def main():
     """Main entry point"""
     import argparse
     import ssl
+
     from . import __version__
 
     parser = argparse.ArgumentParser(
@@ -929,9 +1152,19 @@ def main():
         "  vLLM:    python server.py --model llama-3.2-11b-vision-instruct --api-base http://localhost:8000/v1\n"
         "  SGLang:  python server.py --model llama-3.2-11b-vision-instruct --api-base http://localhost:30000/v1\n"
         "  Ollama:  python server.py --model llava:7b --api-base http://localhost:11434/v1\n"
-        "  HTTPS:   python server.py --model llava:7b --api-base http://localhost:11434/v1 --ssl-cert cert.pem --ssl-key key.pem",
+        "  HTTPS:   python server.py --model llava:7b --api-base http://localhost:11434/v1 --ssl-cert cert.pem --ssl-key key.pem\n"
+        "  Kiosk:   python server.py --localhost-http --model llava:7b --api-base http://localhost:11434/v1",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    default_prompt = os.environ.get(
+        "LIVE_VLM_DEFAULT_PROMPT",
+        "Describe what you see in this image in one sentence.",
+    )
+    try:
+        default_max_tokens = int(os.environ.get("LIVE_VLM_MAX_TOKENS", "512"))
+    except ValueError:
+        logger.warning("Invalid LIVE_VLM_MAX_TOKENS value; using 512")
+        default_max_tokens = 512
     parser.add_argument(
         "--version",
         action="version",
@@ -951,14 +1184,26 @@ def main():
         "--api-base", help="VLM API base URL (optional, will auto-detect or use NVIDIA NGC)"
     )
     parser.add_argument(
+        "--vlm-backend",
+        choices=("openai", "edgellm"),
+        default="openai",
+        help="VLM request dialect (default: openai; use edgellm for TensorRT Edge-LLM)",
+    )
+    parser.add_argument(
         "--api-key",
         default="EMPTY",
         help="API key - use 'EMPTY' for local servers, required for NVIDIA NGC/OpenAI (default: EMPTY)",
     )
     parser.add_argument(
         "--prompt",
-        default="Describe what you see in this image in one sentence.",
-        help="Prompt to send to VLM (default: 'Describe what you see...')",
+        default=default_prompt,
+        help="Prompt to send to VLM (default can be set with LIVE_VLM_DEFAULT_PROMPT)",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=default_max_tokens,
+        help="Maximum tokens to generate (default: 512, or LIVE_VLM_MAX_TOKENS)",
     )
     # Get default SSL cert paths (platform-specific)
     default_config_dir = get_app_config_dir()
@@ -979,10 +1224,23 @@ def main():
     parser.add_argument(
         "--no-ssl",
         action="store_true",
-        help="Disable SSL (not recommended - webcam requires HTTPS)",
+        help="Disable SSL (webcam works on http://localhost; remote access requires HTTPS)",
+    )
+    parser.add_argument(
+        "--localhost-http",
+        action="store_true",
+        help=(
+            "Serve HTTP on 127.0.0.1 for same-device kiosk use. "
+            "This avoids self-signed certificate prompts while keeping the browser on localhost."
+        ),
     )
 
     args = parser.parse_args()
+    if args.max_tokens < 1:
+        parser.error("--max-tokens must be >= 1")
+    if args.localhost_http:
+        args.host = "127.0.0.1"
+        args.no_ssl = True
 
     # Set default SSL cert paths to config directory if not specified
     if args.ssl_cert is None:
@@ -1022,7 +1280,14 @@ def main():
 
     # Initialize VLM service
     global vlm_service
-    vlm_service = VLMService(model=model, api_base=api_base, api_key=api_key, prompt=args.prompt)
+    vlm_service = VLMService(
+        model=model,
+        api_base=api_base,
+        api_key=api_key,
+        prompt=args.prompt,
+        max_tokens=args.max_tokens,
+        backend=args.vlm_backend,
+    )
 
     # Log initialization with better formatting
     service_name = "Local" if "localhost" in api_base or "127.0.0.1" in api_base else "Cloud"
@@ -1043,7 +1308,6 @@ def main():
     protocol = "http"
     if not args.no_ssl:
         # Try to auto-generate if certificates don't exist
-        import os
         import sys
 
         if not os.path.exists(args.ssl_cert) or not os.path.exists(args.ssl_key):
@@ -1052,7 +1316,7 @@ def main():
                 # FAIL FAST - SSL is required for webcam access
                 logger.error("")
                 logger.error("❌ Cannot start server without SSL certificates")
-                logger.error("❌ Webcam access requires HTTPS!")
+                logger.error("❌ Remote webcam access requires HTTPS!")
                 logger.error("")
                 logger.error("🔧 To fix, install openssl:")
                 logger.error("   Linux/Jetson: sudo apt install openssl")
@@ -1060,9 +1324,7 @@ def main():
                 logger.error("")
                 logger.error("   Then restart the server")
                 logger.error("")
-                logger.error(
-                    "⚠️  Or run with --no-ssl if you don't need camera access (not recommended)"
-                )
+                logger.error("⚠️  For a local kiosk, use --localhost-http and http://localhost")
                 logger.error("")
                 sys.exit(1)
 
@@ -1078,7 +1340,12 @@ def main():
             sys.exit(1)
     else:
         logger.warning("⚠️  SSL disabled with --no-ssl flag")
-        logger.warning("⚠️  Webcam access will NOT work without HTTPS!")
+        if args.localhost_http or is_loopback_host(args.host):
+            logger.info("Using localhost HTTP mode for same-device browser access")
+            logger.info("Open http://localhost:%s on this machine for webcam access", args.port)
+        else:
+            logger.warning("⚠️  Webcam access may not work from non-local HTTP origins")
+            logger.warning("⚠️  Use HTTPS for browsers connecting from another device")
 
     # Get network addresses
     import socket
@@ -1119,8 +1386,9 @@ def main():
             pass
 
     # Display all found network IPs
-    for ip in network_ips:
-        logger.info(f"  Network: {protocol}://{ip}:{args.port}")
+    if not is_loopback_host(args.host):
+        for ip in network_ips:
+            logger.info(f"  Network: {protocol}://{ip}:{args.port}")
 
     logger.info("=" * 70)
     logger.info("")

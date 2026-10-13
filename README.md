@@ -36,6 +36,36 @@ Stream your webcam to any VLM and get live AI-powered analysis - perfect for tes
 
 ---
 
+## This fork: multi-stream demo on Jetson Thor
+
+On Jetson AGX Thor T5000 (L4T 39.2.1), run the upstream kiosk installer:
+
+```bash
+./scripts/kiosk/install_kiosk.sh --multi-stream
+```
+
+It prepares dependencies, models, engines, and store clips, installs the user
+services, and opens the multi-stream WebUI in Chromium. Two or three detected
+USB cameras select two streams; four or more select four. With fewer than two,
+it selects four store videos. The dedicated kiosk profile starts real cameras
+automatically using localhost HTTP, without a certificate or permission prompt.
+
+First-time setup needs internet access and at least **100 GB free storage** for
+public-model conversion. It reuses local Cosmos weights or an accessible
+[ready-made INT4 checkpoint](https://huggingface.co/adsahu-nv/Cosmos3-Nano-Reasoner-INT4-AWQ);
+otherwise it automatically builds INT4 from
+[NVIDIA's public Cosmos model](https://huggingface.co/nvidia/Cosmos3-Nano).
+Preparation can take a long time; later starts reuse the assets.
+
+Camera flags are optional; the UI also offers **2 cameras** and **4 cameras**.
+Use `--source usb --cameras 2` to fix the inputs, or `--no-start` to prepare and
+install without enabling or starting services now. A graphical login on the
+Thor and Docker access without an interactive password are required for the
+kiosk services. See the [Thor setup guide](docs/setup/thor-deployment.md).
+Without `--multi-stream`, the installer retains upstream's manual single-camera
+setup. Use a checkout containing `feat/multi-stream`; local changes are only
+available from a fresh remote clone after that branch is published.
+
 ## 🚀 Quick Start (Easiest Way!)
 
 **For PC, Mac, DGX, and Jetson systems:**
@@ -481,6 +511,9 @@ Includes:
 - 📖 [VLM Backend Setup](./docs/setup/vlm-backends.md) - Detailed guide for Ollama, vLLM, SGLang, NVIDIA API
 - 🤖 [List of Vision-Language Models](./docs/usage/list-of-vlms.md) - Comprehensive catalog of VLMs across Ollama, NVIDIA, OpenAI, Anthropic
 - 📹 [RTSP IP Camera Setup](./docs/usage/rtsp-ip-cameras.md) - 🧪 Beta feature for continuous monitoring (tested: Reolink RLC-811A)
+- 🎥 [Multi-stream Mode](./docs/development/multi-camera.md) - This fork’s two- or four-camera setup, independent prompts and results, and optional masks
+- ⏱️ [Real-time Multi-stream Guide](./docs/development/realtime-demo.md) - Frame alignment, performance indicators, and measured Jetson results
+- 🎞️ [Temporal Video Understanding](./docs/development/temporal-video.md) - Optional recent-frame context in single-camera and Multi-stream modes, with validation and timing scope
 - 🐋 [Docker Compose Details](./docs/setup/docker-compose-details.md) - Complete stack setup with Ollama or NIM
 - 🛠️ [Docker Deployment Guide](./docs/setup/docker.md) - Complete Docker setup and troubleshooting
 - ⚙️ [Advanced Configuration](./docs/usage/advanced-configuration.md) - Performance tuning, custom prompts, API compatibility
@@ -502,6 +535,8 @@ Includes:
 - 🎥 **Multi-source video input**
   - WebRTC webcam streaming (stable)
   - 🧪 RTSP IP camera support (Beta - tested with Reolink RLC-811A)
+- 🎥 **Multi-stream mode (this fork)** - Select **Multi-stream** in the header for two or four browser cameras, RTSP streams, or recorded samples, with independent prompts/results and optional segmentation on the same source frames. [Setup and API guide](./docs/development/multi-camera.md)
+- 🎞️ **Temporal video understanding (this fork)** - Optionally analyze recent 2-, 4-, or 8-second windows independently per camera; single-frame analysis remains the default. [Feature and validation guide](./docs/development/temporal-video.md)
 - 🔌 **OpenAI-compatible API** - Works with vLLM, SGLang, Ollama, TGI, or any vision API
 - 📝 **Interactive prompt editor** - 10+ preset prompts + custom prompts
 - ⚡ **Async processing** - Smooth video while VLM processes frames in background
@@ -509,7 +544,7 @@ Includes:
 
 ### UI & Visualization
 - 🎨 **Modern NVIDIA-themed UI** - Professional design with NVIDIA green accents
-- 🌓 **Light/Dark theme toggle** - Automatic preference persistence
+- 🌓 **Auto/Light/Dark theme toggle** - Shared preference across single-camera and Multi-stream modes
 - 📊 **Live system monitoring** - Real-time GPU, VRAM, CPU, RAM stats with sparkline charts
 - ⏱️ **Inference metrics** - Live latency tracking (last, average, total count)
 - 🪞 **Video mirroring** - Toggle button overlay on camera view

@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multi-stream · Live VLM WebUI</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon/favicon.svg">
+  <link rel="stylesheet" href="/webui.css">
+  <link rel="stylesheet" href="/multi-camera.css">
+  <script src="/webui.js" defer></script>
+  <script src="/multi-camera.js" defer></script>
+</head>
+<body class="multi-stream-page">
+  <header class="header">
+    <div class="header-left">
+            <div class="logo">
+                <svg xmlns="http://www.w3.org/2000/svg"
+                     width="42"
+                     height="42"
+                     viewBox="0 0 1024 1024"
+                     fill="none"
+                     style="color: var(--accent-color);">
+                    <!-- All parts become accent color (NVIDIA green) -->
+                    <path fill="currentColor" d="M1024 727.183 511.134 1024 0 729.493V601.5l511.134 296L1024 601.5z"/>
+
+                    <path fill="currentColor" d="M968.916 53.23c20.567-11.874 37.244-2.248 37.244 21.5v452.571c0 23.748-16.678 52.625-37.244 64.5L568.653 822.893c-20.566 11.874-37.239 2.248-37.239-21.5V348.821c0-23.748 16.673-52.626 37.239-64.5zM592 407.121v304.172c0 18.777 13.183 26.389 29.445 17l303.11-175.001c16.262-9.389 29.445-32.222 29.445-51V198.12zm35-89.894c0-15.037-10.745-21.023-24-13.371-13.255 7.653-24 26.046-24 41.083s10.745 21.024 24 13.371c13.255-7.652 24-26.046 24-41.083M427.702 479.5v337L25 584V247zM216.603 440C168.773 412.386 130 434.772 130 490s38.773 122.386 86.603 150 86.602 5.228 86.602-50-38.773-122.386-86.602-150m146.855 44.544c-12.955-7.48-23.458-1.417-23.458 13.543s10.503 33.151 23.458 40.631 23.458 1.415 23.458-13.544c0-14.96-10.503-33.15-23.458-40.63"/>
+
+                    <path fill="currentColor" d="m455.5 464-403-233.5 38.5-21 404.5 232V778l-40 24.5zM501.5 363.5v40L128.644 191.366 166 169.799zM513.5 298c-6.5 9-9 15.5-12 25.5L198 153l31-17zM931 519.064 715 643.772v-88.949l20.784-11.999v64.948l174.431-100.708v-64.967c8.419-5.181 15.888-14.149 20.785-24.097zM895.288 276.814c15.305-8.836 27.713-1.673 27.713 16v80c0 17.673-12.408 39.164-27.713 48L654.713 559.71c-15.306 8.837-27.713 1.674-27.713-16v-80c0-17.673 12.407-39.163 27.713-48zM663.882 457.792v31.943l158.18-91.325v-31.943z"/>
+                </svg>
+            </div>
+            <div class="title-section">
+                <h1>Live VLM WebUI</h1>
+                <div class="subtitle">Real-time Vision Language Model Benchmark/Evaluation Tool</div>
+            </div>
+        </div>
+    <div class="header-right">
+      <nav class="stream-mode-nav" aria-label="Stream mode">
+        <a class="stream-mode-link" href="/">Single camera</a>
+        <a class="stream-mode-link" href="/multi-camera" aria-current="page">Multi-stream</a>
+      </nav>
+      <span id="session-status" class="status-badge disconnected" role="status">Not started</span>
+      <button class="theme-toggle" id="themeToggle" type="button" aria-label="Change color theme">
+        <span id="themeIcon" aria-hidden="true"></span><span id="themeText">Auto</span>
+      </button>
+    </div>
+  </header>
+  <main class="container" id="multi-stream-view">
+    <aside class="sidebar" aria-label="Multi-stream settings">
+      <details class="panel inference-settings" id="connection-settings">
+        <summary class="panel-header"><span class="panel-title">VLM API Configuration</span><span class="panel-toggle" aria-hidden="true">▼</span></summary>
+        <div class="panel-content">
+          <div class="form-group"><label for="api-base">API Base URL</label><input id="api-base" type="url" placeholder="Use server connection" autocomplete="off"></div>
+          <div class="form-group"><label for="model">Model</label><div class="input-action"><input id="model" type="text" list="model-options" placeholder="Use server model" autocomplete="off"><button id="refresh-models" type="button" class="btn btn-secondary" title="Refresh available models" aria-label="Refresh available models">↻</button></div><datalist id="model-options"></datalist><p id="model-status" class="hint" role="status">Loading models…</p></div>
+          <details class="advanced"><summary>API key &amp; backend</summary>
+            <div class="form-group"><label for="api-key">API Key</label><input id="api-key" type="password" placeholder="Use server key" autocomplete="new-password"></div>
+            <div class="form-group"><label for="vlm-backend">Backend</label><select id="vlm-backend"><option value="openai">OpenAI-compatible</option><option value="edgellm">TensorRT Edge-LLM</option></select></div>
+          </details>
+        </div>
+      </details>
+      <details class="panel" open>
+        <summary class="panel-header"><span class="panel-title">Camera Control</span><span class="panel-toggle" aria-hidden="true">▼</span></summary>
+        <div class="panel-content camera-actions">
+          <button id="enable-cameras" type="button" class="btn btn-secondary">Enable cameras</button>
+          <button id="store-demo" type="button" class="btn btn-secondary">Store demo</button>
+        </div>
+      </details>
+      <details class="panel inference-settings" open>
+        <summary class="panel-header"><span class="panel-title">Prompt Editor</span><span class="panel-toggle" aria-hidden="true">▼</span></summary>
+        <div class="panel-content">
+          <label class="feature-toggle" for="vlm-enabled">VLM inference <span><input id="vlm-enabled" type="checkbox" aria-label="Enable VLM inference" checked><span>On</span></span></label>
+          <div id="vlm-controls">
+            <div class="form-group"><label for="shared-prompt">Prompt</label><textarea id="shared-prompt" rows="3" placeholder="Describe what is happening."></textarea></div>
+            <div class="form-group"><label for="video-understanding">Video understanding</label><select id="video-understanding" aria-describedby="temporal-hint"><option value="single">Single frame</option><option value="temporal">Recent video</option></select></div>
+            <div id="temporal-window-field" class="form-group" hidden><label for="temporal-window">Video window</label><select id="temporal-window"><option value="2">2 seconds</option><option value="4" selected>4 seconds</option><option value="8">8 seconds</option></select></div>
+            <p id="temporal-hint" class="hint" hidden></p>
+            <details class="advanced"><summary>Advanced settings</summary>
+              <div class="form-group"><label for="description-mode">Prompt preset</label><select id="description-mode"><option value="fast">Fast actions</option><option value="detailed">Detailed actions</option></select><p id="description-mode-hint" class="hint"></p></div>
+              <div class="form-group"><label for="image-max-edge">VLM image size</label><select id="image-max-edge"><option value="512">512 px</option><option value="640">640 px</option><option value="960">960 px</option><option value="0">Original size</option></select></div>
+              <div class="settings-pair"><div><label for="max-tokens">Max tokens</label><input id="max-tokens" type="number" min="1" max="32768" value="32"></div><div><label for="process-every">Every N frames</label><input id="process-every" type="number" min="1" max="3600" value="30"></div></div>
+            </details>
+          </div>
+        </div>
+      </details>
+      <details class="panel inference-settings" open>
+        <summary class="panel-header"><span class="panel-title">Segmentation</span><span class="panel-toggle" aria-hidden="true">▼</span></summary>
+        <div class="panel-content">
+          <label class="feature-toggle" for="segmentation-enabled">Object masks <span><input id="segmentation-enabled" type="checkbox" aria-label="Enable segmentation" checked><span>On</span></span></label>
+          <p id="segmentation-status" class="runtime-status" role="status">Checking model…</p>
+          <details class="advanced"><summary>Mask settings</summary>
+            <p class="hint">YOLOE-26 small · target 25 FPS</p>
+            <p id="segmentation-profile" class="hint" hidden></p>
+            <div id="segmentation-controls">
+              <div class="form-group"><label for="classes">Objects</label><textarea id="classes" rows="2" spellcheck="false">person,car,truck,bus,bicycle,motorcycle</textarea><p id="classes-hint" class="hint">Separate names with commas.</p></div>
+              <div class="form-group"><label for="seg-imgsz">Image size</label><select id="seg-imgsz"><option value="640">640 px</option><option value="480">480 px</option><option value="416">416 px</option></select></div>
+              <div class="form-group"><div class="range-label"><label for="confidence">Confidence</label><output id="confidence-value" for="confidence">25%</output></div><input id="confidence" type="range" min="0.05" max="0.95" step="0.05" value="0.25" aria-describedby="confidence-hint"><p id="confidence-hint" class="hint"></p></div>
+              <div class="form-group"><div class="range-label"><label for="opacity">Mask opacity</label><output id="opacity-value" for="opacity">45%</output></div><input id="opacity" type="range" min="0.1" max="0.9" step="0.05" value="0.45"></div>
+            </div>
+          </details>
+        </div>
+      </details>
+      <p id="settings-note" class="hint settings-note" hidden>Stop streams to edit settings.</p>
+    </aside>
+    <section class="main-content camera-area" aria-label="Camera streams">
+      <div class="stream-toolbar">
+        <div class="stream-layout">
+          <h2>Multi-stream</h2>
+          <div class="camera-layout-options">
+            <div class="camera-count" role="group" aria-label="Camera count">
+              <button id="two-cameras" type="button" class="btn btn-secondary" aria-pressed="true" aria-controls="camera-grid">2 cameras</button>
+              <button id="four-cameras" type="button" class="btn btn-secondary" aria-pressed="false" aria-controls="camera-grid">4 cameras</button>
+            </div>
+          </div>
+        </div>
+        <div class="toolbar-actions">
+          <button id="presentation-toggle" type="button" class="btn btn-secondary" aria-pressed="false" hidden>Focus view</button>
+          <button id="stop" type="button" class="btn btn-secondary" disabled>Stop</button>
+          <button id="start" type="button" class="btn btn-primary">Start</button>
+        </div>
+      </div>
+      <div id="notice" class="notice" role="alert" hidden></div>
+      <div id="camera-grid" class="camera-grid" data-count="2"></div>
+      <details id="demo-note" class="demo-note" hidden>
+        <summary>Video sources</summary>
+        <p id="demo-playback-note" class="hint"></p>
+        <p id="presentation-attribution" class="presentation-attribution hint"></p>
+      </details>
+    </section>
+  </main>
+  <template id="camera-template">
+    <article class="camera-card video-card">
+      <div class="camera-heading panel-header"><h2 class="camera-title"></h2><span class="camera-state status-badge disconnected">Ready</span></div>
+      <div class="source-controls"><div><label class="source-label">Source</label><select class="source"><option value="webrtc">Browser camera</option><option value="rtsp">RTSP stream</option><option value="demo">Recorded store video</option></select></div><div class="device-field"><label class="device-label">Camera device</label><select class="device"><option value="">Enable cameras to select a device</option></select></div><div class="rtsp-field" hidden><label class="rtsp-label">Stream URL</label><input class="rtsp-url" type="url" placeholder="rtsp://camera-address/stream" autocomplete="off" spellcheck="false"></div><div class="demo-field" hidden><label class="demo-label">Recorded clip</label><select class="demo"><option value="">Loading store clips…</option></select></div></div>
+      <div class="video-stage"><video autoplay playsinline muted></video><span class="recorded-label" hidden>Recorded · loop</span><span class="video-fps" hidden>Video — FPS</span><div class="video-placeholder"><svg viewBox="0 0 48 48" width="42" height="42" fill="none" aria-hidden="true"><rect x="5" y="13" width="27" height="24" rx="5" stroke="currentColor" stroke-width="2"/><path d="m32 21 10-6v20l-10-6" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Waiting for camera</span></div><button class="play-video btn btn-secondary" type="button" hidden>Play stream</button></div>
+      <div class="camera-insights" tabindex="0" aria-label="Camera analysis and previous results">
+        <div class="description-heading"><span class="insight-label vlm-insight-label">VLM Output</span><span class="vlm-metrics"></span></div>
+        <p class="camera-response">Waiting for result…</p>
+        <div class="insight-footer"><span class="segmentation-metrics">YOLO — FPS</span><span class="temporal-progress" hidden></span><span class="analyzing-badge" hidden>Analyzing</span></div>
+        <details class="camera-details">
+          <summary>Details</summary>
+          <div class="observation-status"><span class="vlm-freshness" hidden></span><span class="temporal-context" hidden></span></div>
+          <p class="vlm-metrics-detail hint"></p>
+          <p class="segmentation-detail hint"></p>
+          <div class="observations-block" hidden><span class="insight-label">Previous results</span><ol class="recent-observations"></ol></div>
+          <details class="camera-prompt"><summary>Custom prompt</summary><label class="prompt-label">Prompt override</label><textarea class="prompt" rows="2" placeholder="Use the shared prompt"></textarea></details>
+        </details>
+      </div>
+    </article>
+  </template>
+</body>
+</html>

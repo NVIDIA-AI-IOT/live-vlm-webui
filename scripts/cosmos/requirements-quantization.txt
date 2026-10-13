@@ -1,0 +1,15 @@
+# Critical versions from the completed conversion; not a full transitive lock.
+# Install the cu130 PyTorch wheels from the PyTorch cu130 index first.
+torch==2.13.0+cu130
+torchvision==0.28.0+cu130
+tensorrt-edgellm[tools]==0.11.0
+transformers==5.14.1
+nvidia-modelopt==0.45.0
+datasets==5.0.0
+safetensors==0.8.0
+numpy==2.2.6
+huggingface-hub==1.12.0
+accelerate==1.13.0
+Pillow==12.2.0
+tokenizers==0.22.2
+cuda-python==13.2.0

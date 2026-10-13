@@ -1,38 +1,31 @@
 """
 RTSP Video Track for IP Camera Support
 
-This module provides VideoStreamTrack implementation for RTSP streams,
-allowing live-vlm-webui to process IP camera feeds instead of just webcams.
-
 SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 SPDX-License-Identifier: Apache-2.0
 """
 
-import av
 import asyncio
 import logging
 import re
-from typing import Optional
+import threading
+
+import av
 from aiortc import VideoStreamTrack
+from aiortc.mediastreams import MediaStreamError
 from av import VideoFrame
 
-# Suppress verbose ffmpeg/libav logging (HEVC decoder errors are normal for IP cameras)
-# These POC/slice errors happen due to network packet loss but stream recovers automatically
-av.logging.set_level(av.logging.FATAL)  # Only show fatal errors that stop the stream
-
+# Packet loss can cause recoverable decoder errors on IP camera streams.
+av.logging.set_level(av.logging.FATAL)
 logger = logging.getLogger(__name__)
 
 
 class RTSPVideoTrack(VideoStreamTrack):
-    """
-    Video track that reads from RTSP stream and converts to aiortc VideoFrame.
+    """Read an RTSP camera through the same frame pipeline as webcam input.
 
-    This enables processing of IP camera feeds through the same pipeline as webcam input.
-    Supports automatic reconnection on stream failure.
-
-    Example:
-        track = RTSPVideoTrack("rtsp://192.168.1.100:554/stream")
-        frame = await track.recv()
+    Async callers should use ``await RTSPVideoTrack.create(url)`` and
+    ``await track.aclose()`` so opening and closing do not block other cameras.
+    The synchronous constructor remains available for legacy callers.
     """
 
     def __init__(
@@ -40,250 +33,238 @@ class RTSPVideoTrack(VideoStreamTrack):
         rtsp_url: str,
         reconnect_attempts: int = 5,
         reconnect_delay: float = 2.0,
-        options: Optional[dict] = None,
+        options: dict | None = None,
+        *,
+        open_timeout: float = 10.0,
+        read_timeout: float = 10.0,
+        _connect_on_init: bool = True,
     ):
-        """
-        Initialize RTSP video track.
-
-        Args:
-            rtsp_url: Full RTSP URL (e.g., rtsp://user:pass@192.168.1.100:554/stream)
-            reconnect_attempts: Number of reconnection attempts on failure (default: 5)
-            reconnect_delay: Base delay between reconnection attempts in seconds (default: 2.0)
-            options: Additional PyAV container options (default: TCP transport)
-        """
         super().__init__()
+        if open_timeout <= 0 or read_timeout <= 0:
+            raise ValueError("RTSP open and read timeouts must be positive")
         self.rtsp_url = rtsp_url
         self.reconnect_attempts = reconnect_attempts
         self.reconnect_delay = reconnect_delay
-        self.container: Optional[av.container.InputContainer] = None
-        self.stream: Optional[av.video.VideoStream] = None
+        self.open_timeout = open_timeout
+        self.read_timeout = read_timeout
+        self.container: av.container.InputContainer | None = None
+        self.stream: av.video.VideoStream | None = None
         self._stopped = False
         self._frame_count = 0
-
-        # Default options for RTSP
+        self.source_generation = 0
+        self._frames = None
+        # PyAV containers are not safe to close concurrently with demux/decode.
+        self._io_lock = threading.Lock()
+        self._recv_lock = asyncio.Lock()
+        self._stop_event = asyncio.Event()
+        self._close_task = None
         self.options = options or {
-            "rtsp_transport": "tcp",  # TCP is more reliable than UDP for most networks
-            "max_delay": "500000",  # 500ms max delay for low latency
+            "rtsp_transport": "tcp",
+            "max_delay": "500000",
             "rtsp_flags": "prefer_tcp",
         }
+        if _connect_on_init:
+            self._connect()
 
-        # Connect to stream
-        self._connect()
+    @classmethod
+    async def create(cls, rtsp_url: str, **kwargs):
+        """Open a camera off the event loop, including cancellation cleanup."""
+        track = cls(rtsp_url, _connect_on_init=False, **kwargs)
+        opening = asyncio.create_task(asyncio.to_thread(track._connect))
+        try:
+            # Cancellation must not discard the handle to a still-opening camera.
+            await asyncio.shield(opening)
+            return track
+        except BaseException:
+            await track.aclose()
+            raise
+        finally:
+            # A canceled caller may outlive a failed worker. Observe its exception
+            # even if cleanup itself receives a second cancellation.
+            opening.add_done_callback(cls._observe_worker)
+
+    @staticmethod
+    def _observe_worker(task):
+        if not task.cancelled():
+            task.exception()
 
     def _sanitize_url(self, url: str) -> str:
-        """
-        Remove password from URL for safe logging.
-
-        Args:
-            url: RTSP URL potentially containing credentials
-
-        Returns:
-            URL with password replaced by ****
-        """
         return re.sub(r"://([^:]+):([^@]+)@", r"://\1:****@", url)
 
     def _connect(self):
-        """
-        Connect to RTSP stream.
-
-        Raises:
-            Exception: If connection fails after all attempts
-        """
-        safe_url = self._sanitize_url(self.rtsp_url)
-
-        try:
-            logger.info(f"Connecting to RTSP stream: {safe_url}")
-
-            # Open RTSP stream
-            self.container = av.open(self.rtsp_url, options=self.options)
-
-            # Get video stream
-            if not self.container.streams.video:
-                raise ValueError("No video stream found in RTSP source")
-
-            self.stream = self.container.streams.video[0]
-
-            # Log stream information
-            codec = self.stream.codec_context.name
-            width = self.stream.width or "unknown"
-            height = self.stream.height or "unknown"
-            fps = self.stream.average_rate or "unknown"
-
-            logger.info(f"RTSP connected successfully: {codec} {width}x{height} @{fps}fps")
-
-        except Exception as e:
-            logger.error(f"Failed to connect to RTSP stream {safe_url}: {e}")
-            raise
-
-    async def recv(self) -> VideoFrame:
-        """
-        Receive next frame from RTSP stream.
-
-        This is called by aiortc framework to get video frames.
-        Runs demuxing/decoding in executor to avoid blocking event loop.
-
-        Returns:
-            VideoFrame: Next decoded video frame
-
-        Raises:
-            StopAsyncIteration: When stream ends or is stopped
-        """
-        if self._stopped:
-            raise StopAsyncIteration
-
-        try:
-            # Read frame from container (blocking operation, run in executor)
-            loop = asyncio.get_event_loop()
-            frame = await loop.run_in_executor(None, self._read_frame)
-
-            if frame is None:
-                if not self._stopped:
-                    logger.warning("RTSP stream ended unexpectedly, attempting reconnection")
-                    await self._reconnect()
-                    # Try again after reconnection
-                    frame = await loop.run_in_executor(None, self._read_frame)
-                    if frame is None:
-                        raise StopAsyncIteration
-                else:
-                    raise StopAsyncIteration
-
-            self._frame_count += 1
-
-            # Log progress periodically
-            if self._frame_count % 300 == 0:  # Every ~10 seconds at 30fps
-                logger.debug(f"RTSP: Received {self._frame_count} frames")
-
-            return frame
-
-        except StopAsyncIteration:
-            raise
-        except Exception as e:
-            logger.error(f"Error receiving RTSP frame: {e}", exc_info=True)
-            # Try to reconnect on error
-            if not self._stopped:
-                await self._reconnect()
-            raise
-
-    def _read_frame(self) -> Optional[VideoFrame]:
-        """
-        Read and decode next frame from RTSP stream (blocking).
-
-        This is a blocking operation and should be run in an executor.
-
-        Returns:
-            VideoFrame or None if stream ended or error occurred
-        """
-        if not self.container or not self.stream:
-            logger.error("Cannot read frame: container or stream not initialized")
-            return None
-
-        try:
-            # Demux and decode packets until we get a video frame
-            for packet in self.container.demux(self.stream):
-                for frame in packet.decode():
-                    if isinstance(frame, VideoFrame):
-                        return frame
-
-            # No more frames available (stream ended)
-            logger.info("RTSP stream reached end of file")
-            return None
-
-        except av.error.EOFError:
-            logger.warning("RTSP stream EOF")
-            return None
-        except Exception as e:
-            logger.error(f"Error decoding RTSP frame: {e}")
-            return None
-
-    async def _reconnect(self):
-        """
-        Attempt to reconnect to RTSP stream with exponential backoff.
-
-        Tries multiple times with increasing delay between attempts.
-        """
-        safe_url = self._sanitize_url(self.rtsp_url)
-        logger.info(f"Attempting RTSP reconnection to {safe_url}...")
-
-        # Clean up existing connection
-        if self.container:
-            try:
-                self.container.close()
-            except Exception as e:
-                logger.debug(f"Error closing container during reconnect: {e}")
-            self.container = None
-            self.stream = None
-
-        # Try to reconnect with exponential backoff
-        for attempt in range(self.reconnect_attempts):
-            try:
-                logger.info(f"Reconnection attempt {attempt + 1}/{self.reconnect_attempts}")
-
-                # Wait with exponential backoff (2, 4, 8, 16, 32 seconds)
-                if attempt > 0:
-                    delay = self.reconnect_delay * (2 ** (attempt - 1))
-                    logger.info(f"Waiting {delay}s before reconnection attempt...")
-                    await asyncio.sleep(delay)
-
-                # Attempt connection
-                self._connect()
-                logger.info(f"RTSP reconnected successfully on attempt {attempt + 1}")
+        """Open and initialize PyAV; all container operations share one lock."""
+        with self._io_lock:
+            if self._stopped:
                 return
-
-            except Exception as e:
-                logger.warning(f"Reconnection attempt {attempt + 1} failed: {e}")
-                if attempt == self.reconnect_attempts - 1:
-                    logger.error(
-                        f"RTSP reconnection failed after {self.reconnect_attempts} attempts"
-                    )
-                    raise
-
-    def stop(self):
-        """
-        Stop the RTSP stream and clean up resources.
-
-        Should be called when stream is no longer needed.
-        """
-        self._stopped = True
-
-        if self.container:
+            safe_url = self._sanitize_url(self.rtsp_url)
+            logger.info("Connecting to RTSP stream: %s", safe_url)
+            container = None
             try:
-                self.container.close()
-                logger.info(f"RTSP stream closed: {self._frame_count} frames received")
-            except Exception as e:
-                logger.warning(f"Error closing RTSP container: {e}")
-            finally:
+                # PyAV's interrupt callback bounds both open and network read I/O.
+                container = av.open(
+                    self.rtsp_url,
+                    options=self.options,
+                    timeout=(self.open_timeout, self.read_timeout),
+                )
+                if not container.streams.video:
+                    raise ValueError("No video stream found in RTSP source")
+                stream = container.streams.video[0]
+                if self._stopped:
+                    container.close()
+                    return
+                self.container = container
+                self.stream = stream
+                self._frames = self._decode_frames(container, stream)
+                self.source_generation += 1
+                logger.info(
+                    "RTSP connected successfully: %s %sx%s @%sfps",
+                    stream.codec_context.name,
+                    stream.width or "unknown",
+                    stream.height or "unknown",
+                    stream.average_rate or "unknown",
+                )
+            except BaseException:
+                if container is not None:
+                    try:
+                        container.close()
+                    except Exception:
+                        logger.debug("Error closing failed RTSP connection", exc_info=True)
                 self.container = None
                 self.stream = None
+                self._frames = None
+                logger.error("Failed to connect to RTSP stream %s", safe_url)
+                raise
 
+    @staticmethod
+    def _decode_frames(container, stream):
+        # Keep this generator between recv() calls: a single packet can decode
+        # into multiple frames, all of which must remain available to the caller.
+        for packet in container.demux(stream):
+            for frame in packet.decode():
+                if isinstance(frame, VideoFrame):
+                    yield frame
+
+    async def recv(self) -> VideoFrame:
+        """Decode one frame off the event loop, reconnecting after a read failure."""
+        async with self._recv_lock:
+            if self._stopped:
+                raise MediaStreamError
+            try:
+                frame = await asyncio.to_thread(self._read_frame)
+                if frame is None and not self._stopped:
+                    logger.warning("RTSP stream ended unexpectedly, attempting reconnection")
+                    await self._reconnect()
+                    frame = await asyncio.to_thread(self._read_frame)
+                if frame is None or self._stopped:
+                    raise MediaStreamError
+            except Exception as error:
+                # aiortc's relay releases its source worker and wakes subscribers
+                # only for MediaStreamError; arbitrary exceptions strand them.
+                await self.aclose()
+                if isinstance(error, MediaStreamError):
+                    raise
+                raise MediaStreamError("RTSP camera could not be read") from error
+            self._frame_count += 1
+            if self._frame_count % 300 == 0:
+                logger.debug("RTSP: Received %s frames", self._frame_count)
+            return frame
+
+    def _read_frame(self) -> VideoFrame | None:
+        """Advance the persistent decoder; never overlap a close or reconnect."""
+        with self._io_lock:
+            if self._stopped or self._frames is None:
+                return None
+            try:
+                return next(self._frames, None)
+            except av.error.EOFError:
+                logger.warning("RTSP stream EOF")
+            except Exception:
+                logger.exception("Error decoding RTSP frame")
+            return None
+
+    def _close_container(self):
+        with self._io_lock:
+            container = self.container
+            self.container = None
+            self.stream = None
+            self._frames = None
+            if container is not None:
+                try:
+                    container.close()
+                except Exception:
+                    logger.warning("Error closing RTSP container", exc_info=True)
+
+    async def _reconnect(self):
+        """Reconnect off the event loop with bounded I/O and exponential backoff."""
+        await asyncio.to_thread(self._close_container)
+        for attempt in range(self.reconnect_attempts):
+            if self._stopped:
+                raise MediaStreamError
+            if attempt > 0:
+                delay = self.reconnect_delay * (2 ** (attempt - 1))
+                try:
+                    await asyncio.wait_for(self._stop_event.wait(), timeout=delay)
+                except asyncio.TimeoutError:
+                    pass
+            if self._stopped:
+                raise MediaStreamError
+            try:
+                await asyncio.to_thread(self._connect)
+                if self._stopped:
+                    raise MediaStreamError
+                logger.info("RTSP reconnected successfully on attempt %s", attempt + 1)
+                return
+            except MediaStreamError:
+                raise
+            except Exception:
+                logger.warning("RTSP reconnection attempt %s failed", attempt + 1)
+                if attempt == self.reconnect_attempts - 1:
+                    raise
+        raise MediaStreamError
+
+    def stop(self):
+        """Stop delivery immediately and safely schedule container cleanup.
+
+        In an event loop, use ``aclose()`` when cleanup must finish before returning.
+        Outside an event loop this method closes the container synchronously.
+        """
+        self._stopped = True
+        self._stop_event.set()
         super().stop()
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._close_container()
+        else:
+            if self._close_task is None:
+                self._close_task = loop.create_task(asyncio.to_thread(self._close_container))
+                self._close_task.add_done_callback(self._observe_worker)
+
+    async def aclose(self):
+        """Wait for pending PyAV I/O before releasing this camera's resources."""
+        self.stop()
+        # Shield the cleanup worker so caller cancellation cannot strand a camera.
+        await asyncio.shield(self._close_task)
 
     @property
     def is_connected(self) -> bool:
-        """Check if RTSP stream is currently connected."""
         return self.container is not None and not self._stopped
 
     def get_stats(self) -> dict:
-        """
-        Get statistics about the RTSP stream.
-
-        Returns:
-            Dictionary with stream statistics
-        """
         stats = {
             "url": self._sanitize_url(self.rtsp_url),
             "connected": self.is_connected,
             "frames_received": self._frame_count,
             "stopped": self._stopped,
         }
-
-        if self.stream:
+        stream = self.stream
+        if stream:
             stats.update(
                 {
-                    "codec": self.stream.codec_context.name,
-                    "width": self.stream.width,
-                    "height": self.stream.height,
-                    "fps": float(self.stream.average_rate) if self.stream.average_rate else None,
+                    "codec": stream.codec_context.name,
+                    "width": stream.width,
+                    "height": stream.height,
+                    "fps": float(stream.average_rate) if stream.average_rate else None,
                 }
             )
-
         return stats

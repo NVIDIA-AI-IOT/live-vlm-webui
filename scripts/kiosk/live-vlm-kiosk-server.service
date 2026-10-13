@@ -1,0 +1,12 @@
+[Unit]
+Description=Live VLM WebUI local kiosk server
+After=live-vlm-kiosk-cosmos.service
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart="%h/.local/lib/live-vlm-webui-kiosk/start_kiosk_server.sh"
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+# The NVIDIA Edge-LLM runtime is installed in a separate venv by the setup helper.
+FROM vllm/vllm-openai@sha256:aff65d7198dd284c37dd0a18a606544cc5e92bfb0d5eb608b77e8b8f1c6b8b0d
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git g++ python3.12-venv python3.12-dev \
+    && rm -rf /var/lib/apt/lists/*
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+ENTRYPOINT ["python3.12"]

@@ -28,1579 +28,8 @@ limitations under the License.
     <link rel="apple-touch-icon" sizes="180x180" href="favicon/apple-touch-icon.png">
     <link rel="manifest" href="favicon/site.webmanifest">
 
-    <style>
-        :root {
-            /* NVIDIA Brand Colors */
-            --nvidia-green: #76B900;
-            --nvidia-green-dark: #5E9400;
-            --nvidia-green-light: #8BC919;
-
-            /* Dark theme (default - NVIDIA style) */
-            --bg-primary: #000000;
-            --bg-secondary: #111111;
-            --bg-tertiary: #1A1A1A;
-            --text-primary: #FFFFFF;
-            --text-secondary: #CCCCCC;
-            --text-muted: #999999;
-            --border-color: #333333;
-            --card-bg: #111111;
-            --card-hover: #1A1A1A;
-            --accent-color: #76B900;
-            --accent-hover: #5E9400;
-            --warning-color: #FFA726; /* Orange - better contrast on dark background */
-            --error-color: #EF5350;
-        }
-
-        body.light-theme {
-            /* Light theme (NVIDIA NGC style) */
-            --bg-primary: #FFFFFF;
-            --bg-secondary: #F8F8F8;
-            --bg-tertiary: #F0F0F0;
-            --text-primary: #000000;
-            --text-secondary: #333333;
-            --text-muted: #666666;
-            --border-color: #E0E0E0;
-            --card-bg: #FFFFFF;
-            --card-hover: #F8F8F8;
-            --accent-color: #76B900;
-            --accent-hover: #5E9400;
-            --warning-color: #F57C00; /* Darker orange - better contrast on light background */
-            --error-color: #D32F2F;
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            min-height: 100vh;
-            transition: background 0.3s ease, color 0.3s ease;
-        }
-
-        /* Code styling for hostname */
-        code {
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-color);
-            padding: 2px 2px;
-            border-radius: 6px;
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
-            font-size: 0.8em;
-            color: var(--accent-color);
-            white-space: nowrap;
-        }
-
-        /* Header */
-        .header {
-            background: var(--bg-secondary);
-            border-bottom: 1px solid var(--border-color);
-            padding: 16px 32px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            position: sticky;
-            top: 0;
-            z-index: 1000;
-            backdrop-filter: blur(10px);
-        }
-
-        .header-left {
-            display: flex;
-            align-items: center;
-            gap: 20px;
-        }
-
-        .logo {
-            font-size: 28px;
-            font-weight: 700;
-            color: var(--accent-color);
-            letter-spacing: -0.5px;
-            line-height: 1;
-        }
-
-        .title-section h1 {
-            font-size: 20px;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 2px;
-        }
-
-        .title-section .subtitle {
-            font-size: 12px;
-            color: var(--text-muted);
-        }
-
-        .header-right {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .theme-toggle {
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-color);
-            color: var(--text-secondary);
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 13px;
-            transition: all 0.2s;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .theme-toggle:hover {
-            background: var(--card-hover);
-        }
-
-        .settings-btn {
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-color);
-            color: var(--text-secondary);
-            padding: 8px 12px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 16px;
-            transition: all 0.2s;
-            display: flex;
-            align-items: center;
-        }
-
-        .settings-btn:hover {
-            background: var(--card-hover);
-        }
-
-        /* Settings Modal */
-        .settings-modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.5);
-            z-index: 10000;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .settings-modal.show {
-            display: flex;
-        }
-
-        .settings-dialog {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            width: 90%;
-            max-width: 900px;
-            max-height: 80vh;
-            overflow-y: auto;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-        }
-
-        .settings-header {
-            padding: 20px 24px;
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .settings-title {
-            font-size: 18px;
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .settings-close {
-            background: none;
-            border: none;
-            font-size: 24px;
-            color: var(--text-secondary);
-            cursor: pointer;
-            padding: 0;
-            width: 32px;
-            height: 32px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 4px;
-            transition: all 0.2s;
-        }
-
-        .settings-close:hover {
-            background: var(--bg-tertiary);
-        }
-
-        .settings-body {
-            padding: 24px;
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 32px;
-        }
-
-        .settings-section {
-            margin-bottom: 24px;
-        }
-
-        .settings-section:last-child {
-            margin-bottom: 0;
-        }
-
-        /* Full width section for sections that need it */
-        .settings-section.full-width {
-            grid-column: 1 / -1;
-        }
-
-        .settings-section-title {
-            font-size: 14px;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 12px;
-        }
-
-        .settings-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px 0;
-            border-bottom: 1px solid var(--border-color);
-            gap: 16px;
-        }
-
-        .settings-item:last-child {
-            border-bottom: none;
-        }
-
-        .settings-item-label {
-            font-size: 14px;
-            color: var(--text-primary);
-        }
-
-        .settings-item > div:first-child {
-            flex: 1;
-            min-width: 0;
-        }
-
-        .settings-item-description {
-            font-size: 12px;
-            color: var(--text-muted);
-            margin-top: 4px;
-        }
-
-        /* Toggle Switch */
-        .toggle-switch {
-            position: relative;
-            width: 48px;
-            height: 26px;
-            flex-shrink: 0;
-        }
-
-        .toggle-switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-
-        .toggle-slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: var(--bg-tertiary);
-            border: 1px solid var(--border-color);
-            transition: 0.3s;
-            border-radius: 26px;
-        }
-
-        .toggle-slider:before {
-            position: absolute;
-            content: "";
-            height: 18px;
-            width: 18px;
-            left: 3px;
-            bottom: 3px;
-            background-color: var(--text-secondary);
-            transition: 0.3s;
-            border-radius: 50%;
-        }
-
-        input:checked + .toggle-slider {
-            background-color: var(--accent-color);
-            border-color: var(--accent-color);
-        }
-
-        input:checked + .toggle-slider:before {
-            transform: translateX(22px);
-            background-color: white;
-        }
-
-        /* Settings Dropdown */
-        .settings-select {
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-color);
-            color: var(--text-primary);
-            padding: 6px 12px;
-            border-radius: 6px;
-            font-size: 14px;
-            cursor: pointer;
-            width: 180px;
-            flex-shrink: 0;
-        }
-
-        .settings-select:focus {
-            outline: none;
-            border-color: var(--accent-color);
-        }
-
-        /* Main Layout */
-        .container {
-            display: flex;
-            height: calc(100vh - 65px);
-        }
-
-        /* Sidebar */
-        .sidebar {
-            width: 350px;
-            background: var(--bg-secondary);
-            border-right: 1px solid var(--border-color);
-            overflow-y: auto;
-            overflow-x: visible;
-            padding: 20px;
-        }
-
-        .panel {
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            margin-bottom: 16px;
-            overflow: visible;
-        }
-
-        .panel-header {
-            padding: 14px 16px;
-            border-bottom: 1px solid var(--border-color);
-            cursor: pointer;
-            user-select: none;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            transition: background 0.2s;
-        }
-
-        .panel-header:hover {
-            background: var(--card-hover);
-        }
-
-        .panel-title {
-            font-size: 14px;
-            font-weight: 600;
-            color: var(--text-primary);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .panel-icon {
-            font-size: 16px;
-        }
-
-        .panel-toggle {
-            color: var(--text-muted);
-            font-size: 12px;
-            transition: transform 0.2s;
-        }
-
-        .panel-toggle.collapsed {
-            transform: rotate(-90deg);
-        }
-
-        .panel-content {
-            padding: 16px;
-            max-height: 1000px;
-            transition: max-height 0.3s ease, opacity 0.3s ease;
-            opacity: 1;
-            overflow: visible;
-        }
-
-        .panel-content.collapsed {
-            max-height: 0;
-            opacity: 0;
-            padding: 0 16px;
-            overflow: hidden;
-        }
-
-        #apiKeyField {
-            max-height: 100px;
-            transition: max-height 0.3s ease, opacity 0.3s ease;
-            opacity: 1;
-            overflow: hidden;
-        }
-
-        #apiKeyField.collapsed {
-            max-height: 0;
-            opacity: 0;
-        }
-
-        #apiKeyToggle {
-            transition: transform 0.2s;
-        }
-
-        #apiKeyToggle.collapsed {
-            transform: rotate(-90deg);
-        }
-
-        .form-group {
-            margin-bottom: 14px;
-        }
-
-        .form-group:last-child {
-            margin-bottom: 0;
-        }
-
-        label {
-            display: block;
-            font-size: 12px;
-            font-weight: 500;
-            color: var(--text-secondary);
-            margin-bottom: 6px;
-            letter-spacing: 0.3px;
-        }
-
-        input[type="text"],
-        input[type="number"],
-        select,
-        textarea {
-            width: 100%;
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-color);
-            color: var(--text-primary);
-            padding: 10px 12px;
-            border-radius: 6px;
-            font-size: 13px;
-            font-family: inherit;
-            transition: border 0.2s;
-        }
-
-        input:focus,
-        select:focus,
-        textarea:focus {
-            outline: none;
-            border-color: var(--primary-blue);
-        }
-
-        /* Prevent browser autofill blue background */
-        input:-webkit-autofill,
-        input:-webkit-autofill:hover,
-        input:-webkit-autofill:focus {
-            -webkit-box-shadow: 0 0 0 1000px var(--bg-tertiary) inset !important;
-            -webkit-text-fill-color: var(--text-primary) !important;
-            transition: background-color 5000s ease-in-out 0s;
-        }
-
-        /* Disabled input styling */
-        input:disabled,
-        select:disabled,
-        textarea:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            background: var(--bg-secondary);
-            color: var(--text-muted);
-        }
-
-        textarea {
-            resize: vertical;
-            min-height: 80px;
-            line-height: 1.5;
-        }
-
-        .btn {
-            width: 100%;
-            padding: 10px 16px;
-            border: none;
-            border-radius: 6px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            letter-spacing: 0.3px;
-        }
-
-        .btn-primary {
-            background: var(--accent-color);
-            color: white;
-            border: 1px solid var(--accent-color);
-        }
-
-        .btn-primary:hover {
-            background: var(--accent-hover);
-            border-color: var(--accent-hover);
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(118, 185, 0, 0.3);
-        }
-
-        /* Tab-style underline (for future use) */
-        .tab-item {
-            padding: 10px 20px;
-            cursor: pointer;
-            border-bottom: 3px solid transparent;
-            transition: border-color 0.2s;
-        }
-
-        .tab-item.active {
-            border-bottom-color: var(--accent-color);
-        }
-
-        .tab-item:hover {
-            border-bottom-color: var(--accent-hover);
-        }
-
-        .btn-secondary {
-            background: var(--bg-tertiary);
-            color: var(--text-primary);
-            border: 1px solid var(--border-color);
-        }
-
-        .btn-secondary:hover {
-            background: var(--card-hover);
-        }
-
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-
-        .icon-btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 28px;
-            height: 28px;
-            padding: 0;
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            background: var(--bg-tertiary);
-            color: var(--text-primary);
-            font-size: 14px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .icon-btn:hover:not(:disabled) {
-            background: var(--card-hover);
-            border-color: var(--accent-color);
-            transform: scale(1.1);
-        }
-
-        .icon-btn:active:not(:disabled) {
-            transform: scale(0.95);
-        }
-
-        .icon-btn:disabled {
-            cursor: not-allowed;
-            opacity: 0.4;
-            background: var(--bg-secondary);
-        }
-
-        .input-hint {
-            font-size: 11px;
-            color: var(--text-muted);
-            margin-top: 4px;
-        }
-
-        /* Input Source Tabs */
-        .input-source-tabs {
-            display: flex;
-            gap: 0;
-            margin-bottom: 16px;
-            border-bottom: 2px solid var(--border-color);
-        }
-
-        /* Beta Badge - Small and Rotated */
-        .beta-badge {
-            display: inline-block;
-            background: var(--warning-color);
-            color: #000;
-            font-size: 7px;
-            font-weight: 700;
-            padding: 1px 1px;
-            border-radius: 2px;
-            margin-left: -6px;
-            vertical-align: super;
-            letter-spacing: 0.3px;
-            transform: rotate(50deg);
-            transform-origin: center;
-        }
-
-        .input-source-tab {
-            flex: 1;
-            padding: 10px 2px;
-            background: transparent;
-            border: none;
-            border-bottom: 2px solid transparent;
-            margin-bottom: -2px;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 500;
-            color: var(--text-muted);
-            transition: all 0.2s;
-        }
-
-        .input-source-tab:hover {
-            color: var(--text-primary);
-            background: rgba(118, 185, 0, 0.05);
-        }
-
-        .input-source-tab.active {
-            color: var(--accent-color);
-            border-bottom-color: var(--accent-color);
-        }
-
-        /* Tooltip */
-        .tooltip-wrapper {
-            position: relative;
-            display: inline-flex;
-            align-items: baseline;
-            gap: 6px;
-        }
-
-        .tooltip-icon {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 15px;
-            height: 15px;
-            border-radius: 50%;
-            background: var(--border-color);
-            color: var(--text-muted);
-            font-size: 10px;
-            font-weight: 600;
-            line-height: 1;
-            cursor: help;
-            transition: all 0.2s;
-            flex-shrink: 0;
-            transform: translateY(-1px);
-        }
-
-        .tooltip-icon:hover {
-            background: var(--accent-color);
-            color: white;
-        }
-
-        .tooltip-text {
-            visibility: hidden;
-            opacity: 0;
-            position: fixed;
-            padding: 12px 16px;
-            background: var(--card-bg);
-            border: 1px solid var(--accent-color);
-            border-radius: 8px;
-            font-size: 12px;
-            line-height: 1.6;
-            color: var(--text-primary);
-            white-space: normal;
-            width: 380px;
-            max-width: calc(100vw - 40px);
-            z-index: 10000;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-            transition: opacity 0.2s, visibility 0.2s;
-            pointer-events: none;
-        }
-
-        .tooltip-text strong {
-            color: var(--accent-color);
-            font-weight: 600;
-        }
-
-        .tooltip-wrapper:hover .tooltip-text {
-            visibility: visible;
-            opacity: 1;
-        }
-
-        /* Main Content */
-        .main-content {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px;
-        }
-
-
-        /* Status Badge */
-        .status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 12px;
-            border-radius: 16px;
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-
-        .status-badge.connected {
-            background: rgba(118, 185, 0, 0.15);
-            color: var(--accent-color);
-        }
-
-        .status-badge.disconnected {
-            background: rgba(107, 114, 128, 0.2);
-            color: var(--text-muted);
-        }
-
-        .status-badge.processing {
-            background: rgba(118, 185, 0, 0.15);
-            color: var(--accent-color);
-        }
-
-        /* Video Display */
-        .video-card {
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            overflow: hidden;
-            margin-bottom: 20px;
-            position: relative;
-        }
-
-        video {
-            width: 100%;
-            display: block;
-            background: #000;
-            transition: transform 0.3s ease;
-        }
-
-        /* Video Overlay Text */
-        .video-overlay {
-            position: absolute;
-            left: 0;
-            right: 0;
-            padding: 16px 20px;
-            background: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.4));
-            color: white;
-            font-size: 16px;
-            line-height: 1.5;
-            pointer-events: none;
-            display: none;
-            z-index: 10;
-        }
-
-        .video-overlay.top {
-            top: 0;
-            background: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.4));
-        }
-
-        .video-overlay.bottom {
-            bottom: 0;
-            background: linear-gradient(to top, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0.4));
-        }
-
-        .video-overlay.show {
-            display: block;
-        }
-
-        video.mirrored {
-            transform: scaleX(-1);
-        }
-
-        .video-controls {
-            position: absolute;
-            top: 12px;
-            right: 12px;
-            display: flex;
-            gap: 8px;
-            z-index: 10;
-        }
-
-        .video-control-btn {
-            background: rgba(0, 0, 0, 0.7);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            color: white;
-            padding: 8px 12px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 13px;
-            backdrop-filter: blur(10px);
-            transition: all 0.2s;
-        }
-
-        .video-control-btn:hover {
-            background: rgba(0, 0, 0, 0.9);
-            border-color: var(--accent-color);
-        }
-
-        .video-control-btn.active {
-            background: var(--accent-color);
-            border-color: var(--accent-color);
-        }
-
-        /* Generation Result */
-        .result-card {
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 20px;
-            transition: opacity 0.3s ease, filter 0.3s ease;
-        }
-
-        .result-card.cloud-api {
-            opacity: 0.5;
-            filter: grayscale(0.3);
-        }
-
-        /* System Stats Card - Background Image */
-        #systemStatsCard {
-            position: relative;
-            overflow: hidden;
-        }
-
-        #systemStatsCard::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            right: 0;
-            bottom: 0;
-            left: 0;
-            background-image: var(--system-bg-image, none);
-            background-size: contain;
-            background-repeat: no-repeat;
-            background-position: bottom right 80px;
-            opacity: 0.08;
-            filter: blur(2px);
-            pointer-events: none;
-            z-index: 0;
-        }
-
-        body.light-theme #systemStatsCard::before {
-            opacity: 0.05;
-        }
-
-        #systemStatsCard > * {
-            position: relative;
-            z-index: 1;
-        }
-
-        .api-preset-item {
-            padding: 10px 16px;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .api-preset-item:hover {
-            background: var(--hover-bg);
-        }
-
-        .api-preset-item strong {
-            color: var(--text-primary);
-            font-size: 13px;
-        }
-
-        .result-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 16px;
-        }
-
-        .result-header-left {
-            flex: 1;
-        }
-
-        .result-title {
-            font-size: 14px;
-            font-weight: 600;
-            color: var(--text-secondary);
-            letter-spacing: 0.3px;
-            margin-bottom: 6px;
-        }
-
-        .result-subtitle {
-            font-size: 12px;
-            color: var(--text-muted);
-            line-height: 1.4;
-        }
-
-        .result-prompt {
-            font-size: 13px;
-            color: var(--text-primary);
-            margin-top: 16px;
-            margin-bottom: 12px;
-            margin-left: auto;
-            margin-right: 0;
-            padding: 6px 12px;
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-color);
-            border-radius: 16px 16px 4px 16px;
-            max-width: 85%;
-            word-wrap: break-word;
-        }
-
-        .result-text {
-            font-size: 15px;
-            line-height: 1.6;
-            color: var(--text-primary);
-            transition: opacity 3s ease, transform 0.3s ease, box-shadow 0.3s ease;
-            min-height: 120px;
-            margin-top: 12px;
-            margin-left: 0;
-            margin-right: auto;
-            padding: 14px 18px;
-            background: linear-gradient(135deg, rgba(118, 185, 71, 0.15) 0%, rgba(147, 112, 219, 0.12) 100%);
-            border: 1px solid rgba(118, 185, 71, 0.3);
-            border-radius: 16px 16px 16px 4px;
-            max-width: 90%;
-            word-wrap: break-word;
-            position: relative; /* For absolute positioning of button */
-        }
-
-        .result-text-content {
-            /* Content wrapper - this is what gets updated, not the parent */
-            width: 100%;
-        }
-
-        /* Embedded markdown toggle button */
-        .markdown-toggle-embedded {
-            position: absolute;
-            top: -1px; /* Overlap balloon's top border */
-            right: -1px; /* Overlap balloon's right border */
-            background: var(--bg-secondary);
-            border-top: 1px solid rgba(118, 185, 71, 0.3);
-            border-right: 1px solid rgba(118, 185, 71, 0.3);
-            border-left: 1px solid rgba(118, 185, 71, 0.3);
-            border-bottom: 1px solid rgba(118, 185, 71, 0.3);
-            border-radius: 0 16px 0 0; /* Match top-right corner of balloon */
-            color: var(--text-secondary);
-            padding: 4px 10px;
-            font-size: 11px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            transition: all 0.2s;
-            z-index: 10;
-            line-height: 1.2;
-        }
-
-        .markdown-toggle-embedded:hover {
-            background: var(--bg-tertiary);
-            color: var(--text-primary);
-        }
-
-        .markdown-toggle-embedded .lucide {
-            width: 12px;
-            height: 12px;
-        }
-
-        /* Copy to clipboard button - overlay style in lower right */
-        .copy-button-embedded {
-            position: absolute;
-            bottom: 8px;
-            right: 8px;
-            background: rgba(255, 255, 255, 0.15);
-            backdrop-filter: blur(8px);
-            border: 1px solid rgba(255, 255, 255, 0.25);
-            border-radius: 6px;
-            color: var(--text-primary);
-            padding: 6px 8px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.2s;
-            z-index: 10;
-            opacity: 0.4;
-        }
-
-        .copy-button-embedded:hover {
-            opacity: 1;
-            background: rgba(255, 255, 255, 0.25);
-            border-color: rgba(255, 255, 255, 0.4);
-            transform: scale(1.05);
-        }
-
-        .copy-button-embedded:active {
-            transform: scale(0.95);
-        }
-
-        .copy-button-embedded .lucide {
-            width: 14px;
-            height: 14px;
-        }
-
-        .copy-button-embedded.copied {
-            background: rgba(118, 185, 0, 0.6);
-            border-color: rgba(118, 185, 0, 0.4);
-        }
-
-        .copy-button-embedded.copied .lucide {
-            animation: checkmark 0.3s ease;
-        }
-
-        @keyframes checkmark {
-            0% { transform: scale(0.8); }
-            50% { transform: scale(1.2); }
-            100% { transform: scale(1); }
-        }
-
-        /* Markdown styling */
-        .result-text-content.markdown-rendered h1,
-        .result-text-content.markdown-rendered h2,
-        .result-text-content.markdown-rendered h3,
-        .result-text.markdown-rendered h1,
-        .result-text.markdown-rendered h2,
-        .result-text.markdown-rendered h3 {
-            color: var(--text-primary);
-            margin-top: 16px;
-            margin-bottom: 8px;
-            font-weight: 600;
-        }
-
-        .result-text-content.markdown-rendered h1,
-        .result-text.markdown-rendered h1 {
-            font-size: 1.5em;
-            border-bottom: 2px solid var(--border-color);
-            padding-bottom: 8px;
-        }
-
-        .result-text-content.markdown-rendered h2,
-        .result-text.markdown-rendered h2 {
-            font-size: 1.3em;
-        }
-
-        .result-text-content.markdown-rendered h3,
-        .result-text.markdown-rendered h3 {
-            font-size: 1.1em;
-        }
-
-        .result-text-content.markdown-rendered p,
-        .result-text.markdown-rendered p {
-            margin: 8px 0;
-        }
-
-        .result-text-content.markdown-rendered ul,
-        .result-text-content.markdown-rendered ol,
-        .result-text.markdown-rendered ul,
-        .result-text.markdown-rendered ol {
-            margin: 8px 0;
-            padding-left: 24px;
-        }
-
-        .result-text-content.markdown-rendered li,
-        .result-text.markdown-rendered li {
-            margin: 4px 0;
-        }
-
-        .result-text-content.markdown-rendered code,
-        .result-text.markdown-rendered code {
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-color);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
-            font-size: 0.9em;
-            color: var(--accent-color);
-        }
-
-        .result-text-content.markdown-rendered pre,
-        .result-text.markdown-rendered pre {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 12px;
-            overflow-x: auto;
-            margin: 12px 0;
-        }
-
-        .result-text-content.markdown-rendered pre code,
-        .result-text.markdown-rendered pre code {
-            background: transparent;
-            border: none;
-            padding: 0;
-            color: var(--text-primary);
-            font-size: 0.85em;
-        }
-
-        .result-text-content.markdown-rendered blockquote,
-        .result-text.markdown-rendered blockquote {
-            border-left: 4px solid var(--accent-color);
-            padding-left: 16px;
-            margin: 12px 0;
-            color: var(--text-secondary);
-            font-style: italic;
-        }
-
-        .result-text-content.markdown-rendered table,
-        .result-text.markdown-rendered table {
-            border-collapse: collapse;
-            width: 100%;
-            margin: 12px 0;
-            font-size: 0.9em;
-        }
-
-        .result-text-content.markdown-rendered table th,
-        .result-text-content.markdown-rendered table td,
-        .result-text.markdown-rendered table th,
-        .result-text.markdown-rendered table td {
-            border: 1px solid var(--border-color);
-            padding: 8px 12px;
-            text-align: left;
-        }
-
-        .result-text-content.markdown-rendered table th,
-        .result-text.markdown-rendered table th {
-            background: var(--bg-tertiary);
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .result-text-content.markdown-rendered table tr:nth-child(even),
-        .result-text.markdown-rendered table tr:nth-child(even) {
-            background: var(--bg-secondary);
-        }
-
-        .result-text-content.markdown-rendered strong,
-        .result-text.markdown-rendered strong {
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .result-text-content.markdown-rendered em,
-        .result-text.markdown-rendered em {
-            font-style: italic;
-        }
-
-        .result-text-content.markdown-rendered a,
-        .result-text.markdown-rendered a {
-            color: var(--accent-color);
-            text-decoration: none;
-        }
-
-        .result-text-content.markdown-rendered a:hover,
-        .result-text.markdown-rendered a:hover {
-            text-decoration: underline;
-        }
-
-        .result-text-content.markdown-rendered hr,
-        .result-text.markdown-rendered hr {
-            border: none;
-            border-top: 1px solid var(--border-color);
-            margin: 16px 0;
-        }
-
-        .result-text.fade {
-            opacity: 0.4;
-        }
-
-        .result-text.new-message {
-            animation: popIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-        }
-
-        .result-text.new-message.with-glow {
-            animation: popInWithGlow 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-        }
-
-        @keyframes popIn {
-            0% {
-                transform: scale(0.95);
-                opacity: 0.8;
-            }
-            100% {
-                transform: scale(1);
-                opacity: 1;
-            }
-        }
-
-        @keyframes popInWithGlow {
-            0% {
-                transform: scale(0.95);
-                opacity: 0.8;
-                box-shadow: 0 0 0 0 rgba(118, 185, 71, 0.4);
-            }
-            50% {
-                box-shadow: 0 0 20px 4px rgba(118, 185, 71, 0.6);
-            }
-            100% {
-                transform: scale(1);
-                opacity: 1;
-                box-shadow: 0 0 0 0 rgba(118, 185, 71, 0);
-            }
-        }
-
-        /* VLM Metrics */
-        .metrics-inline {
-            display: flex;
-            gap: 16px;
-            font-size: 12px;
-            color: var(--text-secondary);
-        }
-
-        .metric-item {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-
-        .metric-value {
-            font-weight: 600;
-            color: var(--accent-color);
-        }
-
-        /* System Stats */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-        }
-
-        .stat-card {
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 16px;
-        }
-
-        .stat-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-
-        .stat-label {
-            font-size: 11px;
-            font-weight: 600;
-            color: var(--text-secondary);
-            letter-spacing: 0.3px;
-        }
-
-        .stat-value {
-            font-size: 18px;
-            font-weight: 700;
-            color: var(--text-primary);
-            white-space: nowrap;
-        }
-
-        .stat-value-denominator {
-            font-size: 14px;
-            font-weight: 600;
-            opacity: 0.85;
-        }
-
-        .stat-bar {
-            width: 100%;
-            height: 4px;
-            background: var(--bg-tertiary);
-            border-radius: 2px;
-            overflow: hidden;
-            margin-bottom: 8px;
-        }
-
-        .stat-bar-fill {
-            height: 100%;
-            background: var(--accent-color);
-            transition: width 0.3s ease;
-        }
-
-        .stat-bar-fill.high {
-            background: var(--warning-color);
-        }
-
-        .sparkline {
-            width: 100%;
-            height: 40px;
-        }
-
-        /* Info Box */
-        .info-box {
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 16px;
-            font-size: 13px;
-            line-height: 1.6;
-            color: var(--text-secondary);
-        }
-
-        .info-box h3 {
-            font-size: 14px;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 10px;
-        }
-
-        .info-box ul {
-            list-style-position: inside;
-            padding-left: 0;
-        }
-
-        .info-box li {
-            margin-bottom: 6px;
-        }
-
-        /* Scrollbar styling */
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: var(--bg-secondary);
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: var(--bg-tertiary);
-            border-radius: 4px;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: var(--border-color);
-        }
-
-        /* Lucide icon styling */
-        .lucide {
-            width: 1em;
-            height: 1em;
-            vertical-align: middle;
-        }
-
-        .logo .lucide,
-        .logo svg {
-            width: 42px;
-            height: 42px;
-            filter: drop-shadow(0 0 8px var(--accent-color));
-        }
-
-        /* Logo color - theme-aware (subtle glow on light background) */
-        body.light-theme .logo .lucide,
-        body.light-theme .logo svg {
-            filter: drop-shadow(0 0 3px rgba(94, 148, 0, 0.3));
-        }
-
-        .icon-btn .lucide,
-        .settings-btn .lucide,
-        .video-control-btn .lucide {
-            width: 16px;
-            height: 16px;
-        }
-
-        .panel-icon .lucide {
-            width: 18px;
-            height: 18px;
-        }
-
-        .result-title .lucide {
-            width: 20px;
-            height: 20px;
-            margin-right: 6px;
-        }
-
-        /* Default: Neutral icon colors (clean two-tone system) */
-        .panel-icon svg,
-        .panel-icon .lucide,
-        .result-title svg,
-        .result-title .lucide {
-            stroke: var(--text-secondary) !important;
-        }
-
-        /* Colorful icon strokes (only when enabled) - Dark theme */
-        body.colorful-focus .panel-icon:has([data-lucide="globe"]) svg,
-        body.colorful-focus .panel-icon:has([data-lucide="globe"]) .lucide {
-            stroke: rgb(34, 211, 238) !important; /* Softer cyan */
-        }
-
-        body.colorful-focus .panel-icon:has([data-lucide="video"]) svg,
-        body.colorful-focus .panel-icon:has([data-lucide="video"]) .lucide {
-            stroke: rgb(59, 130, 246) !important; /* Blue */
-        }
-
-        body.colorful-focus .panel-icon:has([data-lucide="edit-3"]) svg,
-        body.colorful-focus .panel-icon:has([data-lucide="edit-3"]) .lucide {
-            stroke: rgb(251, 191, 36) !important; /* Yellow/Orange */
-        }
-
-        body.colorful-focus .result-title:has([data-lucide="bot"]) svg,
-        body.colorful-focus .result-title:has([data-lucide="bot"]) .lucide {
-            stroke: rgb(168, 85, 247) !important; /* Purple */
-        }
-
-        body.colorful-focus #systemStatsCard .result-title:has([data-lucide="activity"]) svg,
-        body.colorful-focus #systemStatsCard .result-title:has([data-lucide="activity"]) .lucide {
-            stroke: rgb(118, 185, 0) !important; /* NVIDIA Green */
-        }
-
-        /* Colorful icon strokes - Light theme (darker variants) */
-        body.light-theme.colorful-focus .panel-icon:has([data-lucide="globe"]) svg,
-        body.light-theme.colorful-focus .panel-icon:has([data-lucide="globe"]) .lucide {
-            stroke: rgb(6, 182, 212) !important; /* Darker cyan */
-        }
-
-        body.light-theme.colorful-focus .panel-icon:has([data-lucide="video"]) svg,
-        body.light-theme.colorful-focus .panel-icon:has([data-lucide="video"]) .lucide {
-            stroke: rgb(37, 99, 235) !important; /* Darker blue */
-        }
-
-        body.light-theme.colorful-focus .panel-icon:has([data-lucide="edit-3"]) svg,
-        body.light-theme.colorful-focus .panel-icon:has([data-lucide="edit-3"]) .lucide {
-            stroke: rgb(217, 119, 6) !important; /* Darker orange */
-        }
-
-        body.light-theme.colorful-focus .result-title:has([data-lucide="bot"]) svg,
-        body.light-theme.colorful-focus .result-title:has([data-lucide="bot"]) .lucide {
-            stroke: rgb(126, 34, 206) !important; /* Darker purple */
-        }
-
-        body.light-theme.colorful-focus #systemStatsCard .result-title:has([data-lucide="activity"]) svg,
-        body.light-theme.colorful-focus #systemStatsCard .result-title:has([data-lucide="activity"]) .lucide {
-            stroke: rgb(94, 148, 0) !important; /* Darker NVIDIA green */
-        }
-
-        /* Settings icon - theme-aware */
-        .settings-btn .lucide {
-            stroke: rgb(200, 200, 200);
-        }
-        body.light-theme .settings-btn .lucide {
-            stroke: rgb(100, 100, 100); /* Darker gray for light mode */
-        }
-
-        /* Theme toggle icons - Yellow/Gold */
-        #themeIcon .lucide {
-            stroke: rgb(247, 224, 166); /* Bright gold for dark mode (moon) */
-        }
-        body.light-theme #themeIcon .lucide {
-            stroke: rgb(223, 168, 4); /* Darker gold for light mode (sun) */
-        }
-
-        /* Video control buttons - Teal */
-        .video-control-btn .lucide {
-            stroke: rgb(20, 184, 166);
-        }
-        body.light-theme .video-control-btn .lucide {
-            stroke: rgb(13, 148, 136); /* Darker teal for light mode */
-        }
-
-        /* Action button icons (play, stop) - White for contrast on green button */
-        .btn-primary .lucide {
-            stroke: white !important;
-        }
-        body.light-theme .btn-primary .lucide {
-            stroke: white !important;
-        }
-
-        .btn-secondary .lucide {
-            stroke: var(--text-primary) !important;
-        }
-
-        /* Input fields - Focus and Apply animations */
-        #promptText,
-        #maxTokens,
-        #processEvery,
-        #apiBaseUrl,
-        #apiKey,
-        #modelSelect,
-        #cameraSelect,
-        #rtspUrl {
-            transition: all 0.3s ease;
-        }
-
-        /* Default: Neutral white focus glow (when colorful is disabled) */
-        #promptText:focus,
-        #maxTokens:focus,
-        #processEvery:focus,
-        #cameraSelect:focus,
-        #apiBaseUrl:focus,
-        #apiKey:focus,
-        #modelSelect:focus,
-        #rtspUrl:focus {
-            border-color: rgba(200, 200, 200, 0.6) !important;
-            box-shadow: 0 0 0 2px rgba(200, 200, 200, 0.15),
-                        0 0 8px rgba(200, 200, 200, 0.2) !important;
-            outline: none;
-        }
-
-        /* Colorful focus glows (only when enabled) */
-        body.colorful-focus #promptText:focus,
-        body.colorful-focus #maxTokens:focus {
-            border-color: rgb(251, 191, 36) !important;
-            box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.3),
-                        0 0 12px rgba(251, 191, 36, 0.4) !important;
-        }
-
-        body.colorful-focus #processEvery:focus,
-        body.colorful-focus #cameraSelect:focus,
-        body.colorful-focus #rtspUrl:focus {
-            border-color: rgb(59, 130, 246) !important;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3),
-                        0 0 12px rgba(59, 130, 246, 0.4) !important;
-        }
-
-        body.colorful-focus #apiBaseUrl:focus,
-        body.colorful-focus #apiKey:focus,
-        body.colorful-focus #modelSelect:focus {
-            border-color: rgb(34, 211, 238) !important;
-            box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.25),
-                        0 0 12px rgba(34, 211, 238, 0.3) !important;
-        }
-
-        /* Bright flash animation when applied (on blur) */
-        @keyframes settingApplied {
-            0% {
-                box-shadow: 0 0 0 0 rgba(118, 185, 0, 0.7),
-                           0 0 20px rgba(118, 185, 0, 0.8);
-            }
-            50% {
-                box-shadow: 0 0 0 6px rgba(118, 185, 0, 0.3),
-                           0 0 30px rgba(118, 185, 0, 0.6);
-            }
-            100% {
-                box-shadow: 0 0 0 0 rgba(118, 185, 0, 0),
-                           0 0 0 rgba(118, 185, 0, 0);
-            }
-        }
-
-        #promptText.applied,
-        #maxTokens.applied,
-        #processEvery.applied,
-        #apiBaseUrl.applied,
-        #apiKey.applied,
-        #modelSelect.applied,
-        #cameraSelect.applied,
-        #rtspUrl.applied {
-            animation: settingApplied 0.6s ease-out;
-        }
-
-
-        /* ===== GRADIENT STROKES (Optional - gradients may not work reliably with Lucide) ===== */
-        /*
-        .panel-icon [data-lucide="globe"] svg {
-            stroke: url(#gradient-cyan) !important;
-        }
-
-        .panel-icon [data-lucide="video"] svg {
-            stroke: url(#gradient-blue) !important;
-        }
-
-        .panel-icon [data-lucide="edit-3"] svg {
-            stroke: url(#gradient-orange) !important;
-        }
-
-        .result-title [data-lucide="bot"] svg {
-            stroke: url(#gradient-purple) !important;
-        }
-
-        #systemStatsCard .result-title [data-lucide="activity"] svg {
-            stroke: url(#gradient-green) !important;
-        }
-        */
-
-    </style>
+    <link rel="stylesheet" href="/webui.css">
+    <script src="/webui.js" defer></script>
 
     <!-- SVG Gradient Definitions (for gradient strokes) -->
     <svg width="0" height="0" style="position: absolute;">
@@ -1643,6 +72,8 @@ limitations under the License.
     <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js"></script>
     <script>
+        // Keep the local kiosk usable when the optional icon CDN is unavailable.
+        window.lucide = window.lucide || { createIcons() {} };
         // Initialize Lucide icons immediately when DOM is ready
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => lucide.createIcons());
@@ -1676,6 +107,10 @@ limitations under the License.
             </div>
         </div>
         <div class="header-right">
+            <nav class="stream-mode-nav" aria-label="Stream mode">
+                <a class="stream-mode-link" href="/" aria-current="page">Single camera</a>
+                <a class="stream-mode-link" href="/multi-camera">Multi-stream</a>
+            </nav>
             <span class="status-badge disconnected" id="connectionStatus">Disconnected</span>
             <button class="settings-btn" id="settingsBtn" title="Settings">
                 <i data-lucide="settings"></i>
@@ -1965,6 +400,15 @@ limitations under the License.
                             <span><strong>Beta:</strong> Tested with Reolink RLC-811A. Other cameras may work. <a href="https://github.com/NVIDIA-AI-IOT/live-vlm-webui/blob/main/docs/usage/rtsp-ip-cameras.md" target="_blank" style="color: var(--warning-color); text-decoration: underline;">Learn more</a></span>
                         </div>
                     </div>
+                    <div class="form-group">
+                        <label for="videoUnderstanding">Video understanding</label>
+                        <select id="videoUnderstanding" aria-describedby="temporalHint"><option value="single">Single frame</option><option value="temporal">Temporal video (recent frames)</option></select>
+                    </div>
+                    <div class="form-group" id="temporalWindowField" hidden>
+                        <label for="temporalWindow">Recent video window</label>
+                        <select id="temporalWindow"><option value="2">2 seconds</option><option value="4" selected>4 seconds</option><option value="8">8 seconds</option></select>
+                    </div>
+                    <div class="input-hint" id="temporalHint" style="margin-bottom: 16px;">Each VLM request analyzes one sampled frame.</div>
                     <div class="form-group" style="margin-bottom: 0;">
                         <label>Frame Processing Interval</label>
                         <input type="number" id="processEvery" value="30" min="1" max="3600" step="1">
@@ -2073,6 +517,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             </div>
 
                 <div class="result-prompt" id="currentPrompt"></div>
+                <div class="result-prompt" id="temporalContext" role="status" hidden></div>
                 <div class="result-text" id="resultText">
                     <button class="markdown-toggle-embedded" id="markdownToggle" title="Toggle Markdown Rendering">
                         <span id="markdownIcon"><i data-lucide="code"></i></span>
@@ -2152,9 +597,6 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
 
     <script>
         // Elements
-        const themeToggle = document.getElementById('themeToggle');
-        const themeIcon = document.getElementById('themeIcon');
-        const themeText = document.getElementById('themeText');
         const videoElement = document.getElementById('videoElement');
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
@@ -2175,19 +617,90 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
         const modelSelect = document.getElementById('modelSelect');
         const refreshModelsBtn = document.getElementById('refreshModelsBtn');
         const processEvery = document.getElementById('processEvery');
+        const videoUnderstanding = document.getElementById('videoUnderstanding');
+        const temporalWindow = document.getElementById('temporalWindow');
+        const temporalContext = document.getElementById('temporalContext');
         const maxLatency = document.getElementById('maxLatency');
         const mirrorBtn = document.getElementById('mirrorBtn');
 
         let peerConnection = null;
         let localStream = null;
         let websocket = null;
+        let initializeServerFromSelection = false;
         let fadeTimeout = null;
         let lastText = '';
         let isAnalysisRunning = false;
+        let isAnalysisStarting = false;
+        // Upstream kiosk opt-in; ordinary single-camera pages remain manual.
+        const autoStart = new URLSearchParams(window.location.search).get('autostart') === '1';
+        let autoStartPending = autoStart;
+        let temporalEditedByUser = false;
+        let temporalHasResult = false;
         let selectedCameraId = null;
         let rtspSessionId = 'default';  // For RTSP mode
+        const streamId = globalThis.crypto?.randomUUID?.() || `stream-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
         // Enable markdown by default (user can disable if they prefer raw text)
         let markdownEnabled = localStorage.getItem('markdownEnabled') !== 'false';
+
+        function temporalConfiguration() {
+            return { enabled: videoUnderstanding.value === 'temporal', window_seconds: Number(temporalWindow.value), sample_fps: 2 };
+        }
+
+        function syncTemporalControls() {
+            const busy = isAnalysisStarting || isAnalysisRunning;
+            const temporal = temporalConfiguration();
+            videoUnderstanding.disabled = busy;
+            temporalWindow.disabled = busy || !temporal.enabled;
+            document.getElementById('temporalWindowField').hidden = !temporal.enabled;
+            document.getElementById('temporalHint').textContent = temporal.enabled
+                ? 'Collects 2 frames per second. The first result waits for the recent-video buffer to fill. Stop the stream to change this setting.'
+                : 'Each VLM request analyzes one sampled frame.';
+        }
+
+        function applyTemporalConfig(temporal) {
+            if (!temporal || isAnalysisRunning || isAnalysisStarting) return;
+            videoUnderstanding.value = temporal.enabled === true ? 'temporal' : 'single';
+            if ([2, 4, 8].includes(temporal.window_seconds)) temporalWindow.value = String(temporal.window_seconds);
+            syncTemporalControls();
+        }
+
+        function showTemporalContext(metrics = {}, completed = false) {
+            if (!isAnalysisStarting && !isAnalysisRunning) return;
+            if (completed) {
+                temporalHasResult = true;
+                if (metrics.temporal_enabled === true) {
+                    const count = metrics.temporal_frame_count;
+                    const span = metrics.temporal_window_seconds;
+                    temporalContext.textContent = Number.isInteger(count) && Number.isFinite(span)
+                        ? `Recent video · ${count} frames across ${span.toFixed(1)} s` : 'Recent-video result';
+                    const transport = metrics.temporal_transport === 'video' ? 'a video clip' : metrics.temporal_transport === 'images' ? 'ordered frame images' : 'recent frames';
+                    temporalContext.title = `Context used for this result: ${transport}. The duration is the measured span between the first and last sampled frame, not the configured collection window.`;
+                } else {
+                    temporalContext.textContent = metrics.temporal_enabled === false || !temporalConfiguration().enabled ? 'Single-frame result' : 'Video context not reported';
+                    temporalContext.title = 'Context reported by the model request for this completed response.';
+                }
+                temporalContext.hidden = false;
+            } else if (!temporalHasResult && temporalConfiguration().enabled) {
+                const count = metrics.temporal_buffer_frames;
+                const capacity = temporalConfiguration().window_seconds * 2;
+                temporalContext.textContent = metrics.temporal_buffer_ready === true ? 'Recent video ready · waiting for result'
+                    : Number.isInteger(count) ? `Collecting recent frames · ${count}/${capacity}` : 'Collecting recent frames…';
+                temporalContext.title = 'Recent frames are collected before the first temporal request. This is buffer progress, not a completed result.';
+                temporalContext.hidden = false;
+            }
+        }
+
+        for (const control of [videoUnderstanding, temporalWindow]) {
+            control.addEventListener('change', () => {
+                if (isAnalysisRunning || isAnalysisStarting) return;
+                temporalEditedByUser = true;
+                syncTemporalControls();
+                if (websocket?.readyState === WebSocket.OPEN) {
+                    websocket.send(JSON.stringify({ type: 'update_temporal', temporal: temporalConfiguration() }));
+                }
+            });
+        }
+        syncTemporalControls();
 
         // Enumerate and list available cameras
         async function enumerateCameras() {
@@ -2365,7 +878,9 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         rtsp_url: rtspUrl,
-                        session_id: 'test-' + Date.now()
+                        session_id: 'test-' + Date.now(),
+                        temporal: temporalConfiguration(),
+                        stream_id: streamId
                     })
                 });
 
@@ -2430,10 +945,12 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
         // Markdown rendering function
         function renderMarkdown(text) {
             if (!text) return '';
+            const plainText = document.createElement('div');
+            plainText.textContent = text;
             // Check if libraries are loaded
             if (typeof marked === 'undefined' || typeof DOMPurify === 'undefined') {
                 console.warn('Markdown libraries not loaded, falling back to plain text');
-                return text;
+                return plainText.innerHTML;
             }
             try {
                 // Configure marked options
@@ -2449,7 +966,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 });
             } catch (e) {
                 console.error('Error rendering markdown:', e);
-                return text; // Fallback to plain text on error
+                return plainText.innerHTML; // Escaped plain text on error
             }
         }
 
@@ -2568,86 +1085,19 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             }
         }
 
-        // Enumerate cameras on page load
-        enumerateCameras();
+        // Release the enumeration probe before an unattended kiosk starts capture.
+        const camerasReady = enumerateCameras();
 
-        // Theme management: Honor OS preference with manual override support
-        function applyTheme(theme) {
-            // theme can be 'light', 'dark', or 'auto'
-            if (theme === 'light') {
-                document.body.classList.add('light-theme');
-                themeIcon.innerHTML = '<i data-lucide="sun"></i>';
-                themeText.textContent = 'Light';
-            } else if (theme === 'dark') {
-                document.body.classList.remove('light-theme');
-                themeIcon.innerHTML = '<i data-lucide="moon"></i>';
-                themeText.textContent = 'Dark';
-            } else { // 'auto' - follow OS preference
-                const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
-                if (prefersLight) {
-                    document.body.classList.add('light-theme');
-                } else {
-                    document.body.classList.remove('light-theme');
-                }
-                // Always show monitor icon for AUTO mode
-                themeIcon.innerHTML = '<i data-lucide="monitor"></i>';
-                themeText.textContent = 'Auto';
-            }
-            lucide.createIcons();
-
-            // Update product image for theme-aware icons (Mac/PC workstation icons)
+        // The shared theme controller updates the shell; keep platform artwork in sync.
+        window.addEventListener('webui:themechange', () => {
             if (window.lastSystemStats) {
                 const productImg = document.getElementById('systemProductImage');
                 const imageSrc = getSystemProductImage(window.lastSystemStats);
                 if (imageSrc) {
                     productImg.src = imageSrc;
-                    // Also update background image
                     const systemStatsCard = document.getElementById('systemStatsCard');
                     systemStatsCard.style.setProperty('--system-bg-image', `url('${imageSrc}')`);
                 }
-            }
-        }
-
-        // Theme Toggle: cycles through Auto -> Light -> Dark -> Auto
-        themeToggle.addEventListener('click', () => {
-            const currentTheme = localStorage.getItem('theme') || 'auto';
-            let nextTheme;
-
-            if (currentTheme === 'auto' || !currentTheme) {
-                nextTheme = 'light';
-            } else if (currentTheme === 'light') {
-                nextTheme = 'dark';
-            } else { // dark
-                nextTheme = 'auto';
-            }
-
-            // Only save manual overrides (light/dark) to localStorage
-            // Don't save 'auto' - always check OS preference when in auto mode
-            if (nextTheme === 'auto') {
-                localStorage.removeItem('theme');
-            } else {
-                localStorage.setItem('theme', nextTheme);
-            }
-            applyTheme(nextTheme);
-        });
-
-        // Load saved theme or detect OS preference
-        const savedTheme = localStorage.getItem('theme');
-        if (savedTheme === 'light' || savedTheme === 'dark') {
-            // User has manually set a preference - use it
-            applyTheme(savedTheme);
-        } else {
-            // No manual preference saved - follow OS preference
-            applyTheme('auto');
-        }
-
-        // Listen for OS preference changes when in 'auto' mode
-        const colorSchemeQuery = window.matchMedia('(prefers-color-scheme: light)');
-        colorSchemeQuery.addEventListener('change', (e) => {
-            const currentTheme = localStorage.getItem('theme');
-            // Only update if user hasn't manually set a preference
-            if (!currentTheme || currentTheme === 'auto') {
-                applyTheme('auto');
             }
         });
 
@@ -2875,7 +1325,8 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
         }
 
         // Fetch Models
-        async function fetchModels() {
+        async function fetchModels(options = {}) {
+            const useServerConfiguration = options.useServerConfiguration === true;
             try {
                 modelSelect.innerHTML = '<option value="">Loading models...</option>';
 
@@ -2885,16 +1336,28 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
 
                 // Build query params
                 const params = new URLSearchParams();
-                if (currentApiBase) {
+                if (!useServerConfiguration && currentApiBase) {
                     params.append('api_base', currentApiBase);
                 }
-                if (currentApiKey) {
+                if (!useServerConfiguration && currentApiKey) {
                     params.append('api_key', currentApiKey);
                 }
 
                 const url = `/models${params.toString() ? '?' + params.toString() : ''}`;
-                const response = await fetch(url);
+                const response = await fetch(url, useServerConfiguration ? { signal: AbortSignal.timeout(15000) } : {});
+                if (!response.ok) throw new Error(`Model discovery failed (${response.status})`);
                 const data = await response.json();
+
+                if (useServerConfiguration) {
+                    if (!data.api_base || !data.configured_model) return false;
+                    apiBaseUrl.value = data.api_base;
+                    checkApiKeyRequirement(data.api_base);
+                    updateSystemStatsVisibility(data.api_base);
+                    // Keep the configured model even if an endpoint omits it from its inventory.
+                    if (!(data.models || []).some(model => model.id === data.configured_model)) {
+                        data.models = [{ id: data.configured_model, current: true }, ...(data.models || [])];
+                    }
+                }
 
                 if (data.models && data.models.length > 0) {
                     modelSelect.innerHTML = '';
@@ -2905,7 +1368,7 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                         const option = document.createElement('option');
                         option.value = model.id;
                         option.textContent = model.id;
-                        if (model.current) {
+                        if (useServerConfiguration ? model.id === data.configured_model : model.current) {
                             option.selected = true;
                             currentModel = model.id;
                         }
@@ -2930,9 +1393,12 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 } else {
                     modelSelect.innerHTML = '<option value="">No models available</option>';
                 }
+                return true;
             } catch (error) {
                 console.error('Error fetching models:', error);
                 modelSelect.innerHTML = '<option value="">Error loading models</option>';
+                // An unavailable config endpoint does not authorize replacing server settings.
+                return null;
             }
         }
 
@@ -3518,20 +1984,25 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             }
 
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/ws`;
+            const wsUrl = `${protocol}//${window.location.host}/ws?stream_id=${encodeURIComponent(streamId)}`;
 
             websocket = new WebSocket(wsUrl);
 
             websocket.onopen = () => {
+                // Recreate capture and WebRTC after the kiosk server reconnects.
+                if (autoStart && !autoStartPending) {
+                    window.location.reload();
+                    return;
+                }
                 console.log('WebSocket connected');
                 updateStatus('Connected', 'connected');
 
-                // Send current model/API settings to server after WebSocket connects
-                // This ensures auto-selected models are properly initialized on the server side
-                // Fix for race condition: page load might auto-select model before WS connects
+                // Initialize only a newly discovered service. Opening this page must not
+                // overwrite the model/API configured by the server or another camera mode.
                 const currentModel = modelSelect.value;
-                if (currentModel) {
-                    console.log('Initializing server with current model:', currentModel);
+                if (initializeServerFromSelection && currentModel && !autoStart) {
+                    initializeServerFromSelection = false;
+                    console.log('Initializing server with detected model:', currentModel);
                     applyApiSettings({ showFeedback: false });
                 }
             };
@@ -3578,6 +2049,16 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
 
                     updateResultText(data.text);
                     lastText = data.text;
+                    const failed = data.metrics?.last_request_succeeded === false || String(data.text).startsWith('Error:');
+                    const completed = data.metrics?.last_request_succeeded === true || data.metrics?.total_inferences > 0;
+                    if (data.text && !failed && completed) {
+                        showTemporalContext(data.metrics || {}, true);
+                    } else if (failed) {
+                        temporalContext.hidden = true;
+                    } else {
+                        // Initializing/status broadcasts have no completed observation yet.
+                        showTemporalContext(data.metrics || {});
+                    }
 
                     // Update video overlay (always, visibility is controlled by CSS)
                     videoOverlay.textContent = data.text;
@@ -3588,6 +2069,13 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                         avgLatencyValue.textContent = Math.round(data.metrics.avg_latency_ms);
                         countValue.textContent = data.metrics.total_inferences;
                     }
+                } else if (data.type === 'temporal_config') {
+                    if (!temporalEditedByUser) applyTemporalConfig(data.temporal);
+                } else if (data.type === 'temporal_updated') {
+                    // The controls stay fixed for an active stream; changes apply on its next start.
+                    if (data.temporal && ['enabled', 'window_seconds', 'sample_fps'].every(key => data.temporal[key] === temporalConfiguration()[key])) temporalEditedByUser = false;
+                } else if (data.type === 'temporal_status') {
+                    showTemporalContext(data.metrics || data);
                 } else if (data.type === 'gpu_stats') {
                     window.lastSystemStats = data.stats;  // Store for theme changes
 
@@ -3605,14 +2093,17 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                         pendingGPUStats = data.stats;
                     }
                 } else if (data.type === 'status') {
+                    if (data.metrics) showTemporalContext(data.metrics);
                     // Don't show status messages in result balloon (too flashy)
                     // Status is already shown in the header
                 } else if (data.type === 'server_config') {
+                    if (!temporalEditedByUser) applyTemporalConfig(data.temporal);
                     // Server sent its current configuration (model, api_base, prompt)
                     if (data.model) {
                         document.getElementById('modelName').textContent = data.model;
-                        // Also update the model select if it matches
-                        if (modelSelect.querySelector(`option[value="${data.model}"]`)) {
+                        if (autoStart) {
+                            modelSelect.replaceChildren(new Option(data.model, data.model));
+                        } else if (modelSelect.querySelector(`option[value="${data.model}"]`)) {
                             modelSelect.value = data.model;
                         }
                     }
@@ -3620,6 +2111,21 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                         apiBaseUrl.value = data.api_base;
                         checkApiKeyRequirement(data.api_base);
                         updateSystemStatsVisibility(data.api_base);
+                    }
+                    if (data.process_every != null && !isNaN(data.process_every)) {
+                        processEvery.value = String(data.process_every);
+                    }
+                    if (data.prompt) {
+                        promptText.value = data.prompt;
+                        const promptPreview = data.prompt.length > 150 ? data.prompt.substring(0, 150) + '...' : data.prompt;
+                        currentPrompt.textContent = `Prompt: ${promptPreview}`;
+                    }
+                    if (data.max_tokens != null && !isNaN(data.max_tokens)) {
+                        maxTokens.value = String(data.max_tokens);
+                    }
+                    if (autoStartPending) {
+                        autoStartPending = false;
+                        camerasReady.then(() => start());
                     }
                 } else if (data.type === 'model_updated') {
                     // Model was updated on server
@@ -3650,13 +2156,23 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
 
         // Start - dispatch to webcam or RTSP based on active tab
         async function start() {
-            const activeTab = document.querySelector('.input-source-tab.active');
-            const inputSource = activeTab ? activeTab.getAttribute('data-source') : 'webcam';
-
-            if (inputSource === 'webcam') {
-                await startWebcam();
-            } else if (inputSource === 'rtsp') {
-                await startRTSP();
+            if (isAnalysisStarting || isAnalysisRunning) return;
+            isAnalysisStarting = true;
+            startBtn.disabled = true;
+            temporalHasResult = false;
+            temporalContext.hidden = true;
+            syncTemporalControls();
+            showTemporalContext();
+            try {
+                const activeTab = document.querySelector('.input-source-tab.active');
+                const inputSource = activeTab ? activeTab.getAttribute('data-source') : 'webcam';
+                if (inputSource === 'webcam') await startWebcam();
+                else if (inputSource === 'rtsp') await startRTSP();
+            } finally {
+                isAnalysisStarting = false;
+                startBtn.disabled = isAnalysisRunning;
+                syncTemporalControls();
+                if (!isAnalysisRunning) temporalContext.hidden = true;
             }
         }
 
@@ -3732,11 +2248,14 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                     body: JSON.stringify({
                         sdp: peerConnection.localDescription.sdp,
                         type: peerConnection.localDescription.type,
+                        temporal: temporalConfiguration(),
+                        stream_id: streamId,
                     }),
                 });
 
                 const answer = await response.json();
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+                if (!response.ok) throw new Error(answer.error || 'Failed to start camera analysis');
+                await peerConnection.setRemoteDescription(new RTCSessionDescription({ type: answer.type, sdp: answer.sdp }));
 
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
@@ -3745,8 +2264,8 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
 
             } catch (error) {
                 console.error('Error starting webcam:', error);
+                await stop();
                 updateStatus(`Error: ${error.message}`, 'disconnected');
-                stop();
             }
         }
 
@@ -3811,7 +2330,9 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                     body: JSON.stringify({
                         sdp: peerConnection.localDescription.sdp,
                         type: peerConnection.localDescription.type,
-                        rtsp_url: rtspUrl
+                        rtsp_url: rtspUrl,
+                        temporal: temporalConfiguration(),
+                        stream_id: streamId
                     })
                 });
 
@@ -3821,7 +2342,8 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
                 }
 
                 const answer = await response.json();
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+                if (!response.ok) throw new Error(answer.error || 'Failed to start camera analysis');
+                await peerConnection.setRemoteDescription(new RTCSessionDescription({ type: answer.type, sdp: answer.sdp }));
 
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
@@ -3866,6 +2388,9 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
             startBtn.disabled = false;
             stopBtn.disabled = true;
             isAnalysisRunning = false;
+            temporalHasResult = false;
+            temporalContext.hidden = true;
+            syncTemporalControls();
             updateStatus('Connected', 'connected');
 
             // Re-enable RTSP URL field and Test button
@@ -3896,9 +2421,15 @@ After commands, explain: obstacles detected, clearance margins, goal inference, 
 
         // Load on page load
         window.addEventListener('load', async () => {
-            // Detect services first, then fetch models
-            await detectServices();
-            fetchModels();
+            // Kiosks use server defaults even while the configured model is warming up.
+            if (!autoStart) {
+                const configured = await fetchModels({ useServerConfiguration: true });
+                if (configured === false) {
+                    await detectServices();
+                    await fetchModels();
+                    initializeServerFromSelection = true;
+                }
+            }
             connectWebSocket();
 
             // Initialize prompt display

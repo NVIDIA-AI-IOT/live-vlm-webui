@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "tensorrt": "10.16.2.10",
+  "cuda": "13.2.86",
+  "architecture": "arm64",
+  "python": "3.12",
+  "source_indexes": [
+    "https://repo.download.nvidia.com/jetson/common/dists/r39.2/main/binary-arm64/Packages.gz",
+    "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/Packages.gz"
+  ],
+  "packages": [
+    {
+      "name": "libnvinfer-plugin10",
+      "version": "10.16.2.10-1+cuda13.2",
+      "url": "https://repo.download.nvidia.com/jetson/common/pool/main/t/tensorrt/libnvinfer-plugin10_10.16.2.10-1+cuda13.2_arm64.deb",
+      "sha256": "a19ba2f43860e768045947f59a63fecd1464feeba353bfb6a096985b3a634710",
+      "size": 15598604
+    },
+    {
+      "name": "libnvinfer-vc-plugin10",
+      "version": "10.16.2.10-1+cuda13.2",
+      "url": "https://repo.download.nvidia.com/jetson/common/pool/main/t/tensorrt/libnvinfer-vc-plugin10_10.16.2.10-1+cuda13.2_arm64.deb",
+      "sha256": "d7490d02f1ec286843bf796fbd4d3d464ca963d2cf9ceefca1ae7b2b14a4203b",
+      "size": 274586
+    },
+    {
+      "name": "libnvinfer10",
+      "version": "10.16.2.10-1+cuda13.2",
+      "url": "https://repo.download.nvidia.com/jetson/common/pool/main/t/tensorrt/libnvinfer10_10.16.2.10-1+cuda13.2_arm64.deb",
+      "sha256": "d02111e3600d91bef407fe537a4179445cdc73fb259bf1f83dd256804de1897e",
+      "size": 2312945538
+    },
+    {
+      "name": "libnvonnxparsers10",
+      "version": "10.16.2.10-1+cuda13.2",
+      "url": "https://repo.download.nvidia.com/jetson/common/pool/main/t/tensorrt/libnvonnxparsers10_10.16.2.10-1+cuda13.2_arm64.deb",
+      "sha256": "f146cbcc4d5d0d29f2c0123dd6a4b16ed1159eff27d03beeab27bbe9a766bff8",
+      "size": 1268598
+    },
+    {
+      "name": "python3-libnvinfer",
+      "version": "10.16.2.10-1+cuda13.2",
+      "url": "https://repo.download.nvidia.com/jetson/common/pool/main/t/tensorrt/python3-libnvinfer_10.16.2.10-1+cuda13.2_arm64.deb",
+      "sha256": "da1282da12166871f731bb3f058f81b76c4ef22036668111723b0116ba2cf216",
+      "size": 846138
+    },
+    {
+      "name": "cuda-cccl-13-2",
+      "version": "13.2.86-1",
+      "url": "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/cuda-cccl-13-2_13.2.86-1_arm64.deb",
+      "sha256": "b55f0f0e8300c81c807adf51c4b07576db226587ace478fcb248ca4fa91f9384",
+      "size": 1259904
+    },
+    {
+      "name": "cuda-cudart-13-2",
+      "version": "13.2.86-1",
+      "url": "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/cuda-cudart-13-2_13.2.86-1_arm64.deb",
+      "sha256": "136f07f53c0d44d091c636c5dced39cbdffe37e51b4906190cae3d72f4ce2174",
+      "size": 180618
+    },
+    {
+      "name": "cuda-cudart-dev-13-2",
+      "version": "13.2.86-1",
+      "url": "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/cuda-cudart-dev-13-2_13.2.86-1_arm64.deb",
+      "sha256": "3a87a38cee72f1ae0ce16b3b44500173ada17ee8d94717e7d30bc5350ee0a92c",
+      "size": 1438300
+    },
+    {
+      "name": "cuda-culibos-dev-13-2",
+      "version": "13.2.86-1",
+      "url": "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/cuda-culibos-dev-13-2_13.2.86-1_arm64.deb",
+      "sha256": "e9222b4674eca93e8101feb7bbca800ac00b040596a7c57f5d962838dc99348f",
+      "size": 23924
+    },
+    {
+      "name": "cuda-driver-dev-13-2",
+      "version": "13.2.86-1",
+      "url": "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/cuda-driver-dev-13-2_13.2.86-1_arm64.deb",
+      "sha256": "e34389ee29af308ca2ed372e3a6c349cf570e858c5484b2f97f3bb0f39a3a656",
+      "size": 32412
+    },
+    {
+      "name": "cuda-nvrtc-13-2",
+      "version": "13.2.86-1",
+      "url": "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/cuda-nvrtc-13-2_13.2.86-1_arm64.deb",
+      "sha256": "99235709485fe0150fed423ef3ab8ae32d66d0651bec7e3c79cd914fa60788ce",
+      "size": 29710680
+    },
+    {
+      "name": "libcublas-13-2",
+      "version": "13.4.1.3-1",
+      "url": "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/libcublas-13-2_13.4.1.3-1_arm64.deb",
+      "sha256": "3d2dd96cc2dcc037843cdfabb220204d6cd9cce1c35acb8b9ca0aa236d1e8890",
+      "size": 483711336
+    }
+  ]
+}
