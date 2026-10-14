@@ -48,10 +48,13 @@ mounted into an isolated container, without changing host Python/CUDA packages.
 ```
 
 Open `https://JETSON_IP:8090/multi-camera`, accept the development certificate,
-select two or four streams, and start. **Browser camera** reads USB cameras on
-whichever computer runs the browser. To use the Jetson's USB cameras, run the
-browser on that Jetson; a remote laptop's browser cannot select them. HTTPS and
-camera permission are required. Use the RTSP source for network cameras.
+select two or four streams, and start. **Browser camera** reads cameras on
+whichever computer runs the browser and requires browser camera permission.
+**Jetson USB camera** reads cameras connected directly to the Jetson, even from
+a remote laptop: click **USB cameras**, then **Start**. Connect the
+cameras before launching the runner; it maps attached USB video devices and
+their group permissions automatically. Recreate the app container after adding
+cameras. Use the RTSP source for network cameras.
 Disable VLM inference in the UI if a VLM server has not been configured yet.
 
 The default runner binds to `127.0.0.1`; `--host 0.0.0.0` explicitly enables LAN
@@ -249,7 +252,7 @@ sampling. The VLM result never holds up publication of that masked frame.
 
 ```mermaid
 flowchart LR
-    Source["Browser WebRTC, RTSP, or recorded demo"] --> Frame["Host av.VideoFrame\noriginal dimensions, pts, time_base"]
+    Source["Browser WebRTC, Jetson USB, RTSP, or recorded demo"] --> Frame["Host av.VideoFrame\noriginal dimensions, pts, time_base"]
     Frame --> Queue["Per-camera queue\nlatest pending frame only"]
     Queue --> Pace["Per-camera target_fps pacing\ndefault 25"]
     Pace --> BGR["Host uint8 BGR copies\nup to 4 compatible H × W × 3 frames"]

@@ -6,6 +6,7 @@
   const apiRoot = "/api/multi-camera/sessions";
   const tiles = new Map();
   const savedCameras = new Map();
+  const lastWebcamSources = new Map();
   const segmentationTargetFps = 25;
   const descriptionModes = {
     fast: {
@@ -24,12 +25,18 @@
   const previousDemoPrompt = "Describe the visible shopping activity in one short, factual sentence. Mention only actions and objects visible in the image.";
   let cameraCount = 2;
   let devices = [];
+  let usbDevices = [];
+  let usbCatalogLoaded = false;
+  let usbCatalogPromise = null;
+  let loadingUsb = false;
   let activeRun = null;
   let phase = "idle";
   let presentationPreferred = false;
   let enumerating = false;
   let backendSelectedByUser = false;
-  let backendInitialized = false;
+  let apiBaseEdited = false;
+  let serverApiBase = null;
+  let modelDiscoveryGeneration = 0;
   let demoCatalog = [];
   let demoCatalogPromise = null;
   let demoMaxFps = 25;
@@ -60,21 +67,25 @@
   function setPhase(next) {
     phase = next;
     const busy = next !== "idle";
-    $("start").disabled = busy || enumerating || loadingDemo || preparingDemo;
+    $("start").disabled = busy || enumerating || loadingDemo || loadingUsb || preparingDemo;
     $("stop").disabled = !busy || next === "stopping";
-    $("two-cameras").disabled = busy || loadingDemo || preparingDemo;
-    $("four-cameras").disabled = busy || loadingDemo || preparingDemo;
+    $("focus-stop").disabled = $("stop").disabled;
+    if (busy) toggleApiPresets(false);
+    $("two-cameras").disabled = busy || loadingDemo || loadingUsb || preparingDemo;
+    $("four-cameras").disabled = busy || loadingDemo || loadingUsb || preparingDemo;
     document.body.classList.toggle("streams-active", busy);
     $("settings-note").hidden = !busy;
-    $("enable-cameras").disabled = busy || enumerating || loadingDemo || preparingDemo;
-    $("store-demo").disabled = busy || enumerating || loadingDemo || preparingDemo;
-    $("multi-stream-view").querySelectorAll(".inference-settings input, .inference-settings textarea, .inference-settings select, .inference-settings button, .source-controls input, .source-controls select, .camera-prompt textarea").forEach((element) => {
-      element.disabled = busy || preparingDemo;
+    $("enable-cameras").disabled = busy || enumerating || loadingDemo || loadingUsb || preparingDemo;
+    $("usb-cameras").disabled = busy || enumerating || loadingDemo || loadingUsb || preparingDemo;
+    $("store-demo").disabled = busy || enumerating || loadingDemo || loadingUsb || preparingDemo;
+    $("multi-stream-view").querySelectorAll(".inference-settings input, .inference-settings textarea, .inference-settings select, .inference-settings button, .camera-runtime-settings input, .camera-runtime-settings select, .source-controls input, .source-controls select, .camera-prompt textarea").forEach((element) => {
+      element.disabled = busy || loadingUsb || preparingDemo;
     });
     const labels = { idle: "Not started", starting: "Connecting cameras", running: "Cameras connected", stopping: "Stopping cameras" };
     badge($("session-status"), labels[next], next === "running" ? "live" : busy ? "pending" : "");
     if (!busy) syncToggles();
     syncSegmentationProfileControls();
+    syncSourceControls();
     updatePresentation();
   }
 
@@ -86,6 +97,7 @@
     document.body.classList.toggle("presentation-view", presenting);
     const toggle = $("presentation-toggle");
     toggle.hidden = phase !== "running";
+    $("focus-stop").hidden = !presenting;
     toggle.textContent = presenting ? "Show settings" : "Focus view";
     toggle.setAttribute("aria-pressed", String(presenting));
     const recorded = [...tiles.values()].filter((tile) => tile.source.value === "demo");
@@ -111,7 +123,7 @@
       const enabled = $(toggleId).checked;
       $(groupId).classList.toggle("disabled-group", !enabled);
       $(groupId).querySelectorAll("input, textarea, select, button").forEach((element) => {
-        element.disabled = phase !== "idle" || preparingDemo || !enabled;
+        element.disabled = phase !== "idle" || loadingUsb || preparingDemo || !enabled;
       });
       $(toggleId).nextElementSibling.textContent = enabled ? "On" : "Off";
     }
@@ -120,6 +132,7 @@
     }
     syncSegmentationProfileControls();
     syncTemporalControls();
+    syncSourceControls();
   }
 
   function temporalConfiguration() {
@@ -132,10 +145,53 @@
 
   function syncTemporalControls() {
     const temporal = temporalConfiguration();
+    const disabled = phase !== "idle" || loadingUsb || preparingDemo || !$("vlm-enabled").checked;
+    $("video-understanding").disabled = disabled;
+    $("process-every").disabled = disabled;
     $("temporal-window-field").hidden = $("video-understanding").value !== "temporal";
-    $("temporal-window").disabled = phase !== "idle" || preparingDemo || !temporal.enabled;
-    $("temporal-hint").hidden = $("video-understanding").value !== "temporal";
-    $("temporal-hint").textContent = "The first result waits for the video window to fill.";
+    $("temporal-window").disabled = disabled || !temporal.enabled;
+    $("temporal-hint").hidden = false;
+    $("temporal-hint").textContent = $("video-understanding").value === "temporal"
+      ? "The first result waits for the video window to fill."
+      : "Each VLM request analyzes one sampled frame.";
+  }
+
+  function syncSourceControls() {
+    const sources = [...tiles.values()].map((tile) => tile.source.value);
+    for (const [id, tile] of tiles) {
+      if (["webrtc", "usb"].includes(tile.source.value)) lastWebcamSources.set(id, tile.source.value);
+    }
+    const webcam = sources.length > 0 && sources.every((source) => ["webrtc", "usb"].includes(source));
+    const rtsp = sources.length > 0 && sources.every((source) => source === "rtsp");
+    const recorded = sources.length > 0 && sources.every((source) => source === "demo");
+    const disabled = phase !== "idle" || enumerating || loadingDemo || loadingUsb || preparingDemo;
+    for (const [id, selected] of [["source-webcam", webcam], ["source-rtsp", rtsp]]) {
+      $(id).classList.toggle("active", selected);
+      $(id).setAttribute("aria-selected", String(selected));
+      $(id).tabIndex = selected || (!webcam && !rtsp && id === "source-webcam") ? 0 : -1;
+      $(id).disabled = disabled;
+    }
+    $("webcam-source-actions").hidden = rtsp;
+    $("camera-selection-hint").textContent = rtsp
+      ? "Enter a stream URL in each camera tile."
+      : "Select a source and device in each camera tile.";
+    const action = rtsp ? "Connect to Streams" : recorded ? "Play Videos" : "Open Cameras";
+    $("start-label").replaceChildren(document.createTextNode(action));
+    if ($("vlm-enabled").checked) {
+      $("start-label").append(document.createTextNode(" and"), document.createElement("br"), document.createTextNode("Start VLM Analysis"));
+    }
+  }
+
+  function selectSource(source, browserOnly = false) {
+    if (phase !== "idle" || loadingDemo || loadingUsb || preparingDemo) return;
+    syncSourceControls();
+    storeDemoPreset = false;
+    for (const [id, tile] of tiles) {
+      tile.source.value = source === "rtsp" ? "rtsp" : browserOnly ? "webrtc" : lastWebcamSources.get(id) || "webrtc";
+      tile.updateSource();
+    }
+    rememberCameras();
+    syncSourceControls();
   }
 
   function renderTemporalContext(tile, data = {}, completed = false) {
@@ -178,6 +234,7 @@
       savedCameras.set(id, {
         source: tile.source.value,
         device: tile.device.value,
+        usb: tile.usb.value,
         rtsp: tile.rtsp.value,
         demo: tile.demo.value,
         prompt: tile.prompt.value,
@@ -200,6 +257,62 @@
     }
   }
 
+  function populateUsbDevices() {
+    for (const [id, tile] of tiles) {
+      const previous = tile.usb.value || savedCameras.get(id)?.usb;
+      tile.usb.replaceChildren(new Option(usbDevices.length ? "Select a USB camera" : "No USB cameras on the Jetson", ""));
+      for (const device of usbDevices) tile.usb.add(new Option(device.label || device.device_id, device.device_id));
+      if (previous) tile.usb.value = usbDevices.some((device) => device.device_id === previous) ? previous : "";
+      else if (usbDevices[tile.number - 1]) tile.usb.value = usbDevices[tile.number - 1].device_id;
+    }
+  }
+
+  async function loadUsbCameras(force = false) {
+    if (usbCatalogPromise) return usbCatalogPromise;
+    if (usbCatalogLoaded && !force) return usbDevices;
+    usbCatalogPromise = (async () => {
+      const result = await request("/api/usb-cameras", {}, 15000);
+      const seen = new Set();
+      usbDevices = (Array.isArray(result.cameras) ? result.cameras : []).filter((device) => {
+        if (!device || typeof device.device_id !== "string" || !/^video\d+$/.test(device.device_id) || seen.has(device.device_id)) return false;
+        seen.add(device.device_id);
+        return true;
+      });
+      usbCatalogLoaded = true;
+      populateUsbDevices();
+      return usbDevices;
+    })();
+    try { return await usbCatalogPromise; }
+    finally { usbCatalogPromise = null; }
+  }
+
+  async function applyUsbCameras() {
+    if (phase !== "idle" || loadingUsb) return;
+    loadingUsb = true;
+    setPhase(phase);
+    notice();
+    try {
+      const available = await loadUsbCameras(true);
+      if (available.length < cameraCount) {
+        throw new Error(`This layout needs ${cameraCount} USB cameras on the Jetson; found ${available.length}.${available.length >= 2 ? " Choose 2 cameras or connect more." : " Connect the cameras and try again."}`);
+      }
+      storeDemoPreset = false;
+      rememberCameras();
+      for (let number = 1; number <= 4; number += 1) {
+        const id = `camera-${number}`;
+        const saved = savedCameras.get(id) || {};
+        savedCameras.set(id, { ...saved, source: "usb", usb: available[number - 1]?.device_id || "" });
+      }
+      for (const [id, tile] of tiles) {
+        tile.source.value = "usb";
+        tile.usb.value = savedCameras.get(id).usb;
+        tile.updateSource();
+      }
+      notice("Jetson USB cameras ready. Select Start.");
+    } catch (error) { notice(error.message); }
+    finally { loadingUsb = false; setPhase(phase); }
+  }
+
   function renderCameras(count) {
     rememberCameras();
     cameraCount = count;
@@ -214,7 +327,7 @@
       const select = (selector) => card.querySelector(selector);
       const tile = {
         number, card,
-        source: select(".source"), device: select(".device"), rtsp: select(".rtsp-url"), demo: select(".demo"),
+        source: select(".source"), device: select(".device"), usb: select(".usb-device"), rtsp: select(".rtsp-url"), demo: select(".demo"),
         recordedLabel: select(".recorded-label"),
         prompt: select(".prompt"), promptDetails: select(".camera-prompt"), video: select("video"),
         placeholder: select(".video-placeholder"), state: select(".camera-state"),
@@ -230,20 +343,21 @@
       };
       select(".camera-title").textContent = `Camera ${number}`;
       tile.video.setAttribute("aria-label", `Camera ${number} live stream`);
-      for (const [field, labelClass] of [["source", ".source-label"], ["device", ".device-label"], ["rtsp", ".rtsp-label"], ["demo", ".demo-label"], ["prompt", ".prompt-label"]]) {
+      for (const [field, labelClass] of [["source", ".source-label"], ["device", ".device-label"], ["usb", ".usb-label"], ["rtsp", ".rtsp-label"], ["demo", ".demo-label"], ["prompt", ".prompt-label"]]) {
         tile[field].id = `${id}-${field}`;
         select(labelClass).htmlFor = tile[field].id;
       }
       const saved = savedCameras.get(id);
       if (saved) {
         tile.source.value = saved.source;
-        tile.rtsp.value = saved.rtsp;
-        tile.prompt.value = saved.prompt;
+        tile.rtsp.value = saved.rtsp || "";
+        tile.prompt.value = saved.prompt || "";
       } else if (storeDemoPreset) {
         tile.source.value = "demo";
       }
       const updateSource = () => {
         select(".device-field").hidden = tile.source.value !== "webrtc";
+        select(".usb-field").hidden = tile.source.value !== "usb";
         select(".rtsp-field").hidden = tile.source.value !== "rtsp";
         select(".demo-field").hidden = tile.source.value !== "demo";
         tile.recordedLabel.hidden = tile.source.value !== "demo";
@@ -252,7 +366,10 @@
       };
       tile.updateSource = updateSource;
       tile.demo.addEventListener("change", updateDemoNote);
-      tile.source.addEventListener("change", updateSource);
+      tile.source.addEventListener("change", () => {
+        updateSource();
+        if (tile.source.value === "usb") loadUsbCameras().catch((error) => notice(error.message));
+      });
       updateSource();
       tile.video.addEventListener("playing", () => { tile.placeholder.hidden = true; tile.play.hidden = true; });
       for (const event of ["pause", "ended", "emptied", "waiting"]) tile.video.addEventListener(event, () => clearVideoRate(tile));
@@ -261,6 +378,7 @@
       $("camera-grid").append(card);
     }
     populateDevices();
+    populateUsbDevices();
     populateDemoClips();
     updateDemoNote();
     syncToggles();
@@ -277,6 +395,12 @@
       $("image-max-edge").value = String(mode.imageMaxEdge);
     }
     $("description-mode-hint").textContent = mode.hint;
+    syncPromptPreset();
+  }
+
+  function syncPromptPreset() {
+    const prompt = $("shared-prompt").value;
+    $("prompt-preset").value = [...$("prompt-preset").options].some((option) => option.value === prompt) ? prompt : "";
   }
 
   function updateModelRole() {
@@ -299,6 +423,7 @@
   }
 
   function updateDemoNote() {
+    syncSourceControls();
     const hasDemo = [...tiles.values()].some((tile) => tile.source.value === "demo");
     $("demo-note").hidden = !hasDemo;
     const selected = [...tiles.values()].filter((tile) => tile.source.value === "demo")
@@ -370,7 +495,7 @@
       for (let number = 1; number <= 4; number += 1) {
         const id = `camera-${number}`;
         const saved = savedCameras.get(id) || {};
-        savedCameras.set(id, { source: "demo", device: saved.device || "", rtsp: saved.rtsp || "", demo: available[number - 1]?.demo_id || "", prompt: saved.prompt || "" });
+        savedCameras.set(id, { source: "demo", device: saved.device || "", usb: saved.usb || "", rtsp: saved.rtsp || "", demo: available[number - 1]?.demo_id || "", prompt: saved.prompt || "" });
       }
       for (const [id, tile] of tiles) {
         tile.source.value = "demo";
@@ -514,27 +639,54 @@
     }
   }
 
+  function selectModel(name) {
+    if (![...$("model").options].some((option) => option.value === name)) $("model").add(new Option(name, name));
+    $("model").value = name;
+    updateModelRole();
+  }
+
+  function toggleApiPresets(open) {
+    $("api-presets-menu").hidden = !open;
+    $("api-presets").setAttribute("aria-expanded", String(open));
+  }
+
   async function discoverModels() {
+    const generation = ++modelDiscoveryGeneration;
+    const apiBase = $("api-base").value.trim();
+    const useServerDefaults = !apiBase || (!apiBaseEdited && apiBase === serverApiBase);
+    $("model-status").hidden = false;
     $("model-status").textContent = "Loading models…";
     try {
-      const apiBase = $("api-base").value.trim();
-      // Do not place API keys in model-discovery URLs or browser history.
-      const suffix = apiBase && !$("api-key").value ? `?${new URLSearchParams({ api_base: apiBase })}` : "";
+      // Keep secrets out of discovery URLs. Authenticated custom endpoints can use a manually added model.
+      if (!useServerDefaults && $("api-key").value) {
+        $("model-status").textContent = "Use + to enter your model name.";
+        return null;
+      }
+      const suffix = !useServerDefaults ? `?${new URLSearchParams({ api_base: apiBase })}` : "";
       const result = await request(`/models${suffix}`, {}, 15000);
-      if (!backendSelectedByUser && !backendInitialized && !apiBase && !$("api-base").value.trim()
+      // A previous request must not overwrite an endpoint the user is now editing.
+      if (generation !== modelDiscoveryGeneration || apiBase !== $("api-base").value.trim()) return null;
+      if (!backendSelectedByUser && useServerDefaults
           && ["openai", "edgellm"].includes(result.backend)) {
         $("vlm-backend").value = result.backend;
-        backendInitialized = true;
       }
-      $("model-options").replaceChildren();
-      const models = Array.isArray(result.models) ? result.models : [];
-      for (const model of models) $("model-options").append(new Option(model.name || model.id, model.id));
-      if (!$("model").value && models.length) $("model").value = (models.find((model) => model.current) || models[0]).id;
+      if (useServerDefaults && !apiBaseEdited && typeof result.api_base === "string") {
+        serverApiBase = result.api_base;
+        $("api-base").value = result.api_base;
+      }
+      const selected = $("model").value;
+      const models = Array.isArray(result.models) ? result.models.filter((model) => typeof model.id === "string" && model.id) : [];
+      $("model").replaceChildren(new Option("Use server model", ""));
+      for (const model of models) $("model").add(new Option(model.name || model.id, model.id));
+      const preferred = selected || (models.find((model) => model.current) || models[0])?.id;
+      if (preferred) selectModel(preferred);
       updateModelRole();
-      $("model-status").textContent = models.length ? `${models.length} model${models.length === 1 ? "" : "s"} available` : "Using server settings.";
+      $("model-status").textContent = models.length ? "" : "No models found. Use + to enter a model name.";
+      $("model-status").hidden = models.length > 0;
       return result;
     } catch {
-      $("model-status").textContent = "Models unavailable. Enter a model name.";
+      if (generation !== modelDiscoveryGeneration) return null;
+      $("model-status").textContent = "Models unavailable. Use + to enter a model name.";
       $("connection-settings").open = true;
       return null;
     }
@@ -572,11 +724,18 @@
     if (!Number.isInteger(processEvery) || processEvery < 1 || processEvery > 3600) throw new Error("The frame interval must be between 1 and 3600.");
     const cameras = [];
     const selectedDevices = new Set();
+    const selectedUsbDevices = new Set();
     for (const [id, tile] of tiles) {
       const camera = { camera_id: id, source: tile.source.value };
       if (camera.source === "rtsp") {
         camera.rtsp_url = tile.rtsp.value.trim();
         if (!/^rtsps?:\/\/[^/\s]+/i.test(camera.rtsp_url)) throw new Error(`Camera ${tile.number}: enter an RTSP stream URL.`);
+      } else if (camera.source === "usb") {
+        const device = usbDevices.find((entry) => entry.device_id === tile.usb.value);
+        if (!device) throw new Error(`Camera ${tile.number}: select an available USB camera on the Jetson.`);
+        if (selectedUsbDevices.has(device.device_id)) throw new Error(`Camera ${tile.number}: select a different Jetson USB device. Each stream needs its own camera.`);
+        selectedUsbDevices.add(device.device_id);
+        camera.usb_device_id = device.device_id;
       } else if (camera.source === "demo") {
         const clip = demoCatalog.find((entry) => entry.demo_id === tile.demo.value);
         if (!clip?.available) throw new Error(`Camera ${tile.number}: choose an available recorded store clip.`);
@@ -945,6 +1104,8 @@
       assertActive(run);
       if (!status.available) throw new Error(`Segmentation is unavailable: ${status.error || "the model is not ready"}. Disable segmentation to use live descriptions only, or make the model available on the server.`);
     }
+    if ([...tiles.values()].some((tile) => tile.source.value === "usb")) await loadUsbCameras(true);
+    assertActive(run);
     const browserTiles = [...tiles.values()].filter((tile) => tile.source.value === "webrtc");
     if (browserTiles.some((tile) => !tile.device.value)) await enumerateCameras(true);
     assertActive(run);
@@ -1112,7 +1273,18 @@
   $("four-cameras").addEventListener("click", () => renderCameras(4));
   $("start").addEventListener("click", start);
   $("store-demo").addEventListener("click", applyStoreDemo);
+  $("usb-cameras").addEventListener("click", applyUsbCameras);
   $("stop").addEventListener("click", stop);
+  $("focus-stop").addEventListener("click", stop);
+  $("source-webcam").addEventListener("click", () => selectSource("webcam"));
+  $("source-rtsp").addEventListener("click", () => selectSource("rtsp"));
+  for (const id of ["source-webcam", "source-rtsp"]) $(id).addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const target = event.key === "Home" ? "source-webcam" : event.key === "End" ? "source-rtsp" : id === "source-webcam" ? "source-rtsp" : "source-webcam";
+    $(target).click();
+    $(target).focus();
+  });
   $("presentation-toggle").addEventListener("click", () => {
     presentationPreferred = !presentationPreferred;
     updatePresentation();
@@ -1123,6 +1295,49 @@
   $("video-understanding").addEventListener("change", syncTemporalControls);
   $("temporal-window").addEventListener("change", syncTemporalControls);
   $("refresh-models").addEventListener("click", discoverModels);
+  $("add-model").addEventListener("click", () => {
+    const name = window.prompt("Enter model name")?.trim();
+    if (name) selectModel(name);
+  });
+  $("api-base").addEventListener("input", () => {
+    apiBaseEdited = true;
+    modelDiscoveryGeneration += 1;
+    $("model-status").hidden = true;
+  });
+  $("api-base").addEventListener("change", () => {
+    $("model").value = "";
+    updateModelRole();
+    discoverModels();
+  });
+  $("api-presets").addEventListener("click", () => toggleApiPresets($("api-presets-menu").hidden));
+  $("api-presets-menu").addEventListener("click", (event) => {
+    const item = event.target.closest("[data-api-url]");
+    if (!item) return;
+    apiBaseEdited = true;
+    $("api-base").value = item.dataset.apiUrl;
+    $("vlm-backend").value = "openai";
+    backendSelectedByUser = true;
+    $("model").value = "";
+    toggleApiPresets(false);
+    $("api-presets").focus();
+    discoverModels();
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".api-preset-control")) toggleApiPresets(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !$("api-presets-menu").hidden) {
+      toggleApiPresets(false);
+      $("api-presets").focus();
+    }
+  });
+  $("prompt-preset").addEventListener("change", () => {
+    if (!$("prompt-preset").value) return;
+    $("shared-prompt").value = $("prompt-preset").value;
+    $("shared-prompt").classList.add("applied");
+    window.setTimeout(() => $("shared-prompt").classList.remove("applied"), 1000);
+  });
+  $("shared-prompt").addEventListener("input", syncPromptPreset);
   $("vlm-backend").addEventListener("change", () => { backendSelectedByUser = true; });
   $("description-mode").addEventListener("change", () => applyDescriptionMode());
   $("model").addEventListener("input", updateModelRole);
@@ -1137,6 +1352,7 @@
     setPhase(phase);
     try {
       await enumerateCameras(true);
+      selectSource("webcam", true);
       if (devices.length < cameraCount) notice(`Found ${devices.length} browser camera${devices.length === 1 ? "" : "s"}. You can combine browser cameras and RTSP streams.`);
     } catch (error) { notice(error.message); }
     finally { enumerating = false; setPhase(phase); }
@@ -1155,9 +1371,211 @@
   applyDescriptionMode();
   renderCameras(2);
   enumerateCameras().catch(() => {});
+  loadUsbCameras().catch(() => {});
   const readiness = Promise.all([checkSegmentation(), discoverModels(), loadDemoCatalog().catch(() => [])]);
   try {
     const launch = demoLaunchOptions();
     if (launch) applyDemoLaunch(launch, readiness);
   } catch (error) { notice(error.message); }
+})();
+
+// Read the existing system monitor independently of camera sessions.
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const card = $("systemStatsCard");
+  if (!card) return;
+  const fields = [
+    { value: "gpuUtil", bar: "gpuUtilBar", canvas: "gpuUtilSparkline", percent: "gpu_percent", history: "gpu_util", color: "#4CAF50" },
+    { value: "vramUsage", bar: "vramBar", canvas: "vramSparkline", percent: "vram_percent", used: "vram_used_gb", total: "vram_total_gb", history: "vram_used", color: "#9C27B0" },
+    { value: "cpuUtil", bar: "cpuBar", canvas: "cpuSparkline", percent: "cpu_percent", history: "cpu_util", color: "#2196F3" },
+    { value: "ramUsage", bar: "ramBar", canvas: "ramSparkline", percent: "ram_percent", used: "ram_used_gb", total: "ram_total_gb", history: "ram_used", color: "#FF9800" },
+  ];
+  let socket = null;
+  let reconnectTimer = null;
+  let watchdog = null;
+  let reconnectDelay = 1000;
+  let suspended = false;
+  let latestStats = null;
+  let lastReceived = 0;
+  let lastRendered = 0;
+  let frame = null;
+  let renderTimer = null;
+  let intervalMs = 250;
+  try {
+    const saved = Number(localStorage.getItem("gpuUpdateInterval"));
+    if (saved >= 0.1 && saved <= 5) intervalMs = saved * 1000;
+  } catch { /* Monitoring still works when browser storage is unavailable. */ }
+
+  function drawSparkline(canvas, values, color) {
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    const width = Math.max(1, canvas.clientWidth);
+    const height = Math.max(1, canvas.clientHeight);
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = Math.round(width * ratio);
+    canvas.height = Math.round(height * ratio);
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    context.clearRect(0, 0, width, height);
+    if (!Array.isArray(values) || !values.length) return;
+    const data = values.slice(-120).map((value) => Number.isFinite(value) ? Math.max(0, value) : 0);
+    const maximum = Math.max(...data, 1);
+    const step = width / (data.length - 1 || 1);
+    context.strokeStyle = color;
+    context.lineWidth = 2;
+    context.beginPath();
+    data.forEach((value, index) => {
+      const x = index * step;
+      const y = height - (value / maximum) * height;
+      if (index === 0) context.moveTo(x, y);
+      else context.lineTo(x, y);
+    });
+    context.stroke();
+    context.lineTo(width, height);
+    context.lineTo(0, height);
+    context.closePath();
+    context.fillStyle = `${color}20`;
+    context.fill();
+  }
+
+  function productImage(stats) {
+    const product = typeof stats.product_name === "string" ? stats.product_name : "";
+    const board = typeof stats.board_name === "string" ? stats.board_name : "";
+    const gpu = typeof stats.gpu_name === "string" ? stats.gpu_name : "";
+    for (const [name, file] of [["Thor", "jetson-agx-thor-devkit_256px.png"], ["Orin Nano", "jetson-orin-nano-devkit_217px.png"], ["Orin", "jetson-agx-orin-devkit_256px.png"], ["DGX Spark", "dgx-spark_256px.png"]]) {
+      if (board.includes(name) || product.includes(name)) return `/images/${file}`;
+    }
+    if (/nvidia|geforce|rtx|gtx|quadro|tesla/i.test(gpu)) return "/images/m48-gpu-chip-text-256px-grn.png";
+    const type = product.includes("MacBook") ? "laptop" : "workstation";
+    const theme = document.body.classList.contains("light-theme") ? "blk" : "wht";
+    return `/images/m48-${type}-256px-${theme}.png`;
+  }
+
+  function renderHeader(stats) {
+    const text = (key, fallback = "") => typeof stats[key] === "string" ? stats[key] : fallback;
+    const header = $("systemInfoHeader");
+    const host = document.createElement("code");
+    host.textContent = text("hostname", "System");
+    const board = text("board_name") || text("product_name");
+    const cpu = text("cpu_model", "Unknown CPU").replace(/\s*@\s*[\d.]+\s*[GM]Hz/gi, "").trim();
+    const gpu = text("gpu_name", "Unknown GPU");
+    header.replaceChildren();
+    if (board) {
+      const name = document.createElement("b");
+      name.textContent = board;
+      header.append(name, document.createTextNode(" ("), host, document.createTextNode(")"));
+    } else header.append(host, document.createTextNode(` with ${cpu}`));
+    header.append(document.createElement("br"), document.createTextNode(gpu.includes("GPU") ? gpu : `${gpu} GPU`));
+    const src = productImage(stats);
+    const image = $("systemProductImage");
+    if (image.getAttribute("src") !== src) {
+      image.src = src;
+      image.style.display = "block";
+    }
+    card.style.setProperty("--system-bg-image", `url('${src}')`);
+  }
+
+  function render(stats) {
+    renderHeader(stats);
+    for (const field of fields) {
+      const value = $(field.value);
+      const available = field.used
+        ? Number.isFinite(stats[field.used]) && Number.isFinite(stats[field.total])
+        : Number.isFinite(stats[field.percent]);
+      value.replaceChildren();
+      if (!available) value.textContent = "N/A";
+      else if (field.used) {
+        const total = document.createElement("span");
+        total.className = "stat-value-denominator";
+        total.textContent = `/${stats[field.total].toFixed(1)} GB`;
+        value.append(document.createTextNode(stats[field.used].toFixed(1)), total);
+      } else value.textContent = `${stats[field.percent].toFixed(1)}%`;
+      const percent = available && Number.isFinite(stats[field.percent]) ? stats[field.percent] : 0;
+      $(field.bar).style.width = `${Math.max(0, Math.min(100, percent))}%`;
+      $(field.bar).style.background = available ? field.color : "#666";
+      drawSparkline($(field.canvas), available ? stats.history?.[field.history] : [], field.color);
+    }
+    lastRendered = performance.now();
+  }
+
+  function scheduleRender() {
+    window.clearTimeout(renderTimer);
+    renderTimer = null;
+    if (frame !== null || !latestStats || document.hidden) return;
+    frame = requestAnimationFrame(() => {
+      frame = null;
+      if (latestStats) render(latestStats);
+    });
+  }
+
+  function unavailable(message) {
+    window.clearTimeout(renderTimer);
+    renderTimer = null;
+    latestStats = null;
+    $("systemInfoHeader").textContent = message;
+    for (const field of fields) {
+      $(field.value).textContent = "N/A";
+      $(field.bar).style.width = "0%";
+      drawSparkline($(field.canvas), [], field.color);
+    }
+  }
+
+  function connect() {
+    if (suspended || socket) return;
+    const url = new URL("/ws?stream_id=multi-stats", window.location.href);
+    url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const current = new WebSocket(url);
+    socket = current;
+    lastReceived = Date.now();
+    watchdog = window.setInterval(() => {
+      if (Date.now() - lastReceived > 15000) {
+        unavailable("System stats unavailable. Reconnecting…");
+        current.close();
+      }
+    }, 5000);
+    current.addEventListener("message", (event) => {
+      if (socket !== current || suspended) return;
+      let message;
+      try { message = JSON.parse(event.data); } catch { return; }
+      if (message?.type !== "gpu_stats" || !message.stats || typeof message.stats !== "object" || Array.isArray(message.stats)) return;
+      const firstUpdate = latestStats === null;
+      latestStats = message.stats;
+      lastReceived = Date.now();
+      reconnectDelay = 1000;
+      const remaining = intervalMs - (performance.now() - lastRendered);
+      if (firstUpdate || remaining <= 0) scheduleRender();
+      else if (renderTimer === null) renderTimer = window.setTimeout(scheduleRender, remaining);
+    });
+    current.addEventListener("close", () => {
+      if (socket !== current) return;
+      socket = null;
+      window.clearInterval(watchdog);
+      if (suspended) return;
+      unavailable("System stats unavailable. Reconnecting…");
+      reconnectTimer = window.setTimeout(connect, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+    });
+    current.addEventListener("error", () => current.close());
+  }
+
+  $("systemProductImage").addEventListener("error", () => { $("systemProductImage").style.display = "none"; });
+  new ResizeObserver(scheduleRender).observe(card);
+  new MutationObserver(scheduleRender).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  document.addEventListener("visibilitychange", scheduleRender);
+  window.addEventListener("pagehide", () => {
+    suspended = true;
+    window.clearTimeout(reconnectTimer);
+    window.clearTimeout(renderTimer);
+    renderTimer = null;
+    window.clearInterval(watchdog);
+    if (frame !== null) cancelAnimationFrame(frame);
+    frame = null;
+    const current = socket;
+    socket = null;
+    current?.close();
+  });
+  window.addEventListener("pageshow", () => {
+    suspended = false;
+    connect();
+  });
+  connect();
 })();

@@ -11,11 +11,20 @@ it does not replace them with an automatically detected local service.
 
 Choose **2 cameras** or **4 cameras** in the toolbar above the streams.
 These options stay visible in Focus view; stop the streams before changing
-the count. Use the sidebar to configure optional YOLOE segmentation. The **VLM API** and **Prompt** panels provide the shared model
-connection, sampling settings, and default prompt. Each camera tile can use a
-browser camera, an RTSP stream, or an installed recorded sample, with its own
-prompt override and separate results. Browser-camera access requires browser
-permission. Recorded samples are labeled as looping recordings; see the
+the count. The sidebar follows the original single-camera WebUI: **VLM API
+Configuration**, **Camera and App Control**, and **Prompt Editor**. API endpoint
+presets, model selection, prompt presets, and Max Tokens work across all cameras.
+Start/Stop, Video understanding, and Frame Processing Interval live in **Camera
+and App Control**. Optional YOLOE mask controls are in **Segmentation**.
+Each camera tile can use a browser camera, a Jetson USB camera, an RTSP stream, or an installed recorded
+sample, with its own prompt override and separate results. **Browser camera**
+uses cameras connected to the computer running the browser and requires browser
+permission. **Jetson USB camera** uses cameras connected to the server, including
+when viewing from a remote laptop. Select **2 cameras**, click **USB cameras**
+under **Camera and App Control**, then click **Open Cameras and Start VLM
+Analysis** to use two attached Jetson cameras. You can also
+choose **Jetson USB camera** and a device separately in each tile. Recorded samples
+are labeled as looping recordings; see the
 [retail demo guide](retail-demo.md) for setup and attribution.
 
 The settings sidebar remains visible by default. On desktop screens, four
@@ -26,15 +35,25 @@ are hidden while running and return after stopping. Two-camera mode retains
 its larger previews, and narrow screens keep a scrolling layout.
 
 Select **Focus view** to hide the sidebar and give more room to the camera
-views; leave it to return to settings. Stop the streams before changing session
+views; leave it to return to settings. A **Stop** button stays above the streams
+while the sidebar is hidden. Stop the streams before changing session
 settings. Each tile shows the latest VLM description, its full-result latency,
 and measured video and YOLO FPS. Expand **Details** for observation age,
 video context, timing breakdowns, and previous results. The sidebar keeps API
-configuration, generation options, and mask settings collapsed by default.
+configuration open by default, with advanced connection, extra generation
+options, and segmentation settings collapsed. The **Webcam** / **RTSP Stream**
+tabs set the source for all visible cameras; switching back to Webcam restores
+each camera’s previous browser or Jetson USB source.
 Recorded clips retain their on-video label; source and license links are under
 **Video sources** below the grid.
 
-**Video understanding** defaults to **Single frame**. Select **Recent video** for an independent recent-video buffer per camera, using a
+The original **Local System Stats** panel appears below the streams, showing
+live GPU utilization, VRAM usage, CPU utilization, and system RAM with history
+charts. It uses the existing server monitor and stays active before starting
+cameras and after stopping them. These readings describe the WebUI host as a
+whole, not individual models or a remote VLM server.
+
+**Video understanding** defaults to **Single frame**. Select **Temporal video (recent frames)** for an independent recent-video buffer per camera, using a
 2-, 4-, or 8-second window sampled at 2 FPS. Stop streams before changing this
 setting; the Store demo preserves it. The [temporal video guide](temporal-video.md)
 explains collection progress, native Edge-LLM video versus ordered-image
@@ -133,6 +152,32 @@ numbers, underscores, or hyphens for both sessions and cameras.
 
 The server allows up to four multi-camera sessions at a time. The number of
 camera slots is fixed for the lifetime of the session. Delete and recreate the session to change the count, input source, or inference settings.
+
+## Jetson USB cameras
+
+`GET /api/usb-cameras` lists the server's attached USB capture devices. The
+multi-stream UI uses this list for **Jetson USB camera**, independently of the
+browser's own camera permission and device list. Two different physical cameras
+must be selected for a two-camera session. Use the returned `device_id` in a
+camera entry such as:
+
+```json
+{"camera_id": "camera-1", "source": "usb", "usb_device_id": "video0"}
+```
+
+Only IDs in that catalog are accepted; arbitrary device paths are rejected.
+A USB camera belongs to one active multi-stream session at a time. **Stop**
+releases it for another session. Capture prefers an enumerated MJPEG mode up to
+640×480 at 30 FPS; cameras supporting only raw YUYV use a maximum of 15 FPS to
+limit USB bandwidth. Both models receive the same captured originals through
+the existing frame-matched processing path.
+
+The Thor application runner automatically passes attached USB video devices and
+their device-group permissions into the container. It does not need a camera
+flag, privileged mode, or access to the whole `/dev` directory. Connect cameras
+before starting the application. After attaching new cameras, recreate the app
+container so Docker receives their device mappings; refreshing the page alone
+cannot add a new device to an existing container.
 
 ## RTSP cameras
 

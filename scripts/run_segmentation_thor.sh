@@ -3,6 +3,38 @@
 # Build or run this checkout using a pinned, CUDA-enabled Jetson Thor image.
 set -euo pipefail
 
+# Emit Docker arguments for attached USB video devices. No camera is opened here;
+# the application filters capture-capable nodes when listing available cameras.
+# Roots are parameters so discovery can be exercised against an isolated fixture.
+usb_camera_arguments() {
+    local sysfs_root="${1:-/sys/class/video4linux}" device_root="${2:-/dev}"
+    local entry name device_path ancestor gid usb
+    local -A groups=()
+    for entry in "${sysfs_root}"/video*; do
+        name="${entry##*/}"
+        [[ "${name}" =~ ^video[0-9]+$ ]] || continue
+        device_path="${device_root}/${name}"
+        [[ -c "${device_path}" ]] || continue
+        ancestor="$(realpath -e -- "${entry}/device" 2>/dev/null)" || continue
+        usb=false
+        while [[ -n "${ancestor}" && "${ancestor}" != / ]]; do
+            if [[ -r "${ancestor}/idVendor" && -r "${ancestor}/idProduct" ]]; then
+                usb=true
+                break
+            fi
+            ancestor="${ancestor%/*}"
+        done
+        ${usb} || continue
+        gid="$(stat -Lc '%g' -- "${device_path}" 2>/dev/null)" || continue
+        [[ "${gid}" =~ ^[0-9]+$ ]] || continue
+        printf '%s\0' --device "${device_path}:/dev/${name}:rw"
+        if [[ -z "${groups[${gid}]:-}" ]]; then
+            printf '%s\0' --group-add "${gid}"
+            groups["${gid}"]=1
+        fi
+    done
+}
+
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd -- "${script_dir}/.." && pwd)"
 image_name="${LIVE_VLM_SEGMENTATION_IMAGE:-live-vlm-webui:segmentation-thor}"
@@ -48,6 +80,8 @@ Retail export/run uses .models/thor-runtime prepared by:
 Explicit TRT/CUDA paths or TRT_IN_IMAGE=1 override this repository-private runtime.
 The validated exporter uses TensorRT 10.16.2.10, CUDA 13.2 libraries, Python 3.12.
 Default application binding is 127.0.0.1:8090; pass --host 0.0.0.0 for LAN access.
+Attached USB video devices are made available automatically when starting the app.
+Attach cameras before launch; recreate the app container after connecting new ones.
 HELP
 }
 
@@ -150,6 +184,14 @@ if [[ -n "${LIVE_VLM_DEMO_MAX_SIZE:-}" ]]; then
 fi
 if [[ -n "${LIVE_VLM_SEGMENTATION_BASE_IMAGE:-}" ]]; then
     build_args+=(--build-arg "SEGMENTATION_BASE_IMAGE=${LIVE_VLM_SEGMENTATION_BASE_IMAGE}")
+fi
+
+# Map only attached USB video nodes, without privileged mode or a /dev bind.
+# Camera discovery/permission is independent of browser-camera access.
+if [[ "${mode}" == run ]]; then
+    while IFS= read -r -d '' camera_argument; do
+        runtime_args+=("${camera_argument}")
+    done < <(usb_camera_arguments /sys/class/video4linux /dev)
 fi
 
 # Elevate Docker alone if necessary, leaving downloaded/generated files user-owned.

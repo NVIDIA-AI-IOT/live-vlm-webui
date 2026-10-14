@@ -159,6 +159,65 @@ def test_prepare_preview_does_not_start_application(launch_environment, tmp_path
     assert logged_commands(log) == []
 
 
+def usb_device_arguments(sysfs, devices):
+    """Source only the discovery function, without invoking the launcher's main flow."""
+    script = (ROOT / "scripts/run_segmentation_thor.sh").read_text()
+    definitions = script.split("\nscript_dir=", 1)[0]
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            definitions + '\nusb_camera_arguments "$1" "$2"',
+            "discovery",
+            str(sysfs),
+            str(devices),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+    )
+    return result.stdout.rstrip("\0").split("\0") if result.stdout else []
+
+
+def test_usb_container_access_is_scoped_and_adds_device_group(tmp_path):
+    sysfs = tmp_path / "video class"
+    devices = tmp_path / "device nodes"
+    sysfs.mkdir()
+    devices.mkdir()
+    usb = tmp_path / "usb hardware"
+    interface = usb / "interface"
+    interface.mkdir(parents=True)
+    (usb / "idVendor").write_text("046d\n")
+    (usb / "idProduct").write_text("082d\n")
+    for name in ("video0", "video1"):
+        (sysfs / name).mkdir()
+        (sysfs / name / "device").symlink_to(interface)
+        (devices / name).symlink_to("/dev/null")
+    # A non-USB accelerator video node must not be exposed to the app.
+    platform = tmp_path / "platform accelerator"
+    platform.mkdir()
+    (sysfs / "video2").mkdir()
+    (sysfs / "video2" / "device").symlink_to(platform)
+    (devices / "video2").symlink_to("/dev/null")
+    # A stale sysfs node without a character device is ignored.
+    (sysfs / "video3").mkdir()
+    (sysfs / "video3" / "device").symlink_to(interface)
+    (devices / "video3").touch()
+    assert usb_device_arguments(sysfs, devices) == [
+        "--device",
+        f"{devices}/video0:/dev/video0:rw",
+        "--group-add",
+        str(Path("/dev/null").stat().st_gid),
+        "--device",
+        f"{devices}/video1:/dev/video1:rw",
+    ]
+
+
+def test_usb_container_discovery_handles_no_camera_devices(tmp_path):
+    assert usb_device_arguments(tmp_path / "missing sysfs", tmp_path / "missing devices") == []
+
+
 def test_segmentation_engine_preview_uses_repository_runtime(launch_environment, tmp_path):
     environment, log = launch_environment
     environment["LIVE_VLM_SEGMENTATION_ENGINE"] = str(tmp_path / "retail.engine")
@@ -234,6 +293,8 @@ def test_export_preview_uses_target_paths_and_requested_output(launch_environmen
     assert run[run.index("--entrypoint") + 1] == "python"
     assert f"{environment['LIVE_VLM_TRT_RUNTIME_PREFIX']}:/runtime:ro" in run
     assert f"{environment['LIVE_VLM_TRT_CUDA_ROOT']}:/runtime-cuda:ro" in run
+    assert "--device" not in run
+    assert "--group-add" not in run
     assert not output.parent.exists()
     assert logged_commands(log) == []
 

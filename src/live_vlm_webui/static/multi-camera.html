@@ -46,43 +46,100 @@
   </header>
   <main class="container" id="multi-stream-view">
     <aside class="sidebar" aria-label="Multi-stream settings">
-      <details class="panel inference-settings" id="connection-settings">
-        <summary class="panel-header"><span class="panel-title">VLM API Configuration</span><span class="panel-toggle" aria-hidden="true">▼</span></summary>
+      <details class="panel inference-settings" id="connection-settings" open>
+        <summary class="panel-header"><span class="panel-title"><span class="panel-icon"><svg class="lucide" data-lucide="globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/></svg></span>VLM API Configuration</span><span class="panel-toggle" aria-hidden="true">▼</span></summary>
         <div class="panel-content">
-          <div class="form-group"><label for="api-base">API Base URL</label><input id="api-base" type="url" placeholder="Use server connection" autocomplete="off"></div>
-          <div class="form-group"><label for="model">Model</label><div class="input-action"><input id="model" type="text" list="model-options" placeholder="Use server model" autocomplete="off"><button id="refresh-models" type="button" class="btn btn-secondary" title="Refresh available models" aria-label="Refresh available models">↻</button></div><datalist id="model-options"></datalist><p id="model-status" class="hint" role="status">Loading models…</p></div>
-          <details class="advanced"><summary>API key &amp; backend</summary>
-            <div class="form-group"><label for="api-key">API Key</label><input id="api-key" type="password" placeholder="Use server key" autocomplete="new-password"></div>
+          <div class="form-group">
+            <div class="field-heading">
+              <label for="api-base">API Base URL</label>
+              <div class="api-preset-control">
+                <button class="icon-btn" id="api-presets" type="button" title="Select preset API endpoint" aria-label="Select preset API endpoint" aria-haspopup="menu" aria-expanded="false" aria-controls="api-presets-menu"><svg class="lucide" data-lucide="clipboard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></button>
+                <div id="api-presets-menu" class="api-presets-menu" role="menu" aria-label="API endpoint presets" hidden>
+                  <button type="button" class="api-preset-item" role="menuitem" data-api-url="http://localhost:11434/v1"><strong>Ollama</strong><span>http://localhost:11434/v1</span></button>
+                  <button type="button" class="api-preset-item" role="menuitem" data-api-url="http://localhost:8000/v1"><strong>vLLM</strong><span>http://localhost:8000/v1</span></button>
+                  <button type="button" class="api-preset-item" role="menuitem" data-api-url="http://localhost:30000/v1"><strong>SGLang</strong><span>http://localhost:30000/v1</span></button>
+                  <button type="button" class="api-preset-item" role="menuitem" data-api-url="https://api.openai.com/v1"><strong>OpenAI</strong><span>https://api.openai.com/v1</span></button>
+                  <button type="button" class="api-preset-item" role="menuitem" data-api-url="https://integrate.api.nvidia.com/v1"><strong>NVIDIA API Catalog</strong><span>https://integrate.api.nvidia.com/v1</span></button>
+                </div>
+              </div>
+            </div>
+            <input id="api-base" type="url" placeholder="http://localhost:8000/v1" autocomplete="off">
+            <div class="input-hint">Select from presets or enter custom URL</div>
+          </div>
+          <details class="form-group api-key-details">
+            <summary>API Key (Optional)<span class="panel-toggle" aria-hidden="true">▼</span></summary>
+            <label class="visually-hidden" for="api-key">API Key (Optional)</label>
+            <input id="api-key" type="password" placeholder="sk-..." autocomplete="new-password">
+            <div class="input-hint">Required for OpenAI and NVIDIA API Catalog, etc.</div>
+          </details>
+          <div class="form-group">
+            <div class="field-heading">
+              <label for="model">Model Selection</label>
+              <div class="field-actions">
+                <button class="icon-btn" id="refresh-models" type="button" title="Refresh available models" aria-label="Refresh available models"><svg class="lucide" data-lucide="refresh-cw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.4-6.4L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.4 6.4L3 16M3 21v-5h5"/></svg></button>
+                <button class="icon-btn" id="add-model" type="button" title="Add a model name" aria-label="Add a model name"><svg class="lucide" data-lucide="plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+              </div>
+            </div>
+            <select id="model"><option value="">Use server model</option></select>
+            <p id="model-status" class="input-hint" role="status">Loading models…</p>
+          </div>
+          <details class="advanced"><summary>Advanced connection</summary>
             <div class="form-group"><label for="vlm-backend">Backend</label><select id="vlm-backend"><option value="openai">OpenAI-compatible</option><option value="edgellm">TensorRT Edge-LLM</option></select></div>
           </details>
         </div>
       </details>
       <details class="panel" open>
-        <summary class="panel-header"><span class="panel-title">Camera Control</span><span class="panel-toggle" aria-hidden="true">▼</span></summary>
-        <div class="panel-content camera-actions">
-          <button id="enable-cameras" type="button" class="btn btn-secondary">Enable cameras</button>
-          <button id="store-demo" type="button" class="btn btn-secondary">Store demo</button>
-        </div>
-      </details>
-      <details class="panel inference-settings" open>
-        <summary class="panel-header"><span class="panel-title">Prompt Editor</span><span class="panel-toggle" aria-hidden="true">▼</span></summary>
+        <summary class="panel-header"><span class="panel-title"><span class="panel-icon"><svg class="lucide" data-lucide="video" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 8-6 4 6 4V8Z"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg></span>Camera and App Control</span><span class="panel-toggle" aria-hidden="true">▼</span></summary>
         <div class="panel-content">
-          <label class="feature-toggle" for="vlm-enabled">VLM inference <span><input id="vlm-enabled" type="checkbox" aria-label="Enable VLM inference" checked><span>On</span></span></label>
-          <div id="vlm-controls">
-            <div class="form-group"><label for="shared-prompt">Prompt</label><textarea id="shared-prompt" rows="3" placeholder="Describe what is happening."></textarea></div>
-            <div class="form-group"><label for="video-understanding">Video understanding</label><select id="video-understanding" aria-describedby="temporal-hint"><option value="single">Single frame</option><option value="temporal">Recent video</option></select></div>
-            <div id="temporal-window-field" class="form-group" hidden><label for="temporal-window">Video window</label><select id="temporal-window"><option value="2">2 seconds</option><option value="4" selected>4 seconds</option><option value="8">8 seconds</option></select></div>
-            <p id="temporal-hint" class="hint" hidden></p>
-            <details class="advanced"><summary>Advanced settings</summary>
-              <div class="form-group"><label for="description-mode">Prompt preset</label><select id="description-mode"><option value="fast">Fast actions</option><option value="detailed">Detailed actions</option></select><p id="description-mode-hint" class="hint"></p></div>
-              <div class="form-group"><label for="image-max-edge">VLM image size</label><select id="image-max-edge"><option value="512">512 px</option><option value="640">640 px</option><option value="960">960 px</option><option value="0">Original size</option></select></div>
-              <div class="settings-pair"><div><label for="max-tokens">Max tokens</label><input id="max-tokens" type="number" min="1" max="32768" value="32"></div><div><label for="process-every">Every N frames</label><input id="process-every" type="number" min="1" max="3600" value="30"></div></div>
-            </details>
+          <div class="input-source-tabs" role="tablist" aria-label="Camera source">
+            <button id="source-webcam" type="button" class="input-source-tab active" role="tab" aria-selected="true" data-source="webcam"><svg class="lucide" data-lucide="video" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 8-6 4 6 4V8Z"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg> Webcam</button>
+            <button id="source-rtsp" type="button" class="input-source-tab" role="tab" aria-selected="false" data-source="rtsp"><svg class="lucide" data-lucide="cast" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 16a6 6 0 0 1 6 6M2 12a10 10 0 0 1 10 10M2 8V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M2 20h.01"/></svg> RTSP Stream</button>
           </div>
+          <div class="form-group">
+            <label>Camera Selection</label>
+            <div class="camera-actions" id="webcam-source-actions">
+              <button id="enable-cameras" type="button" class="btn btn-secondary" title="Cameras connected to this browser">Enable cameras</button>
+              <button id="usb-cameras" type="button" class="btn btn-secondary" title="USB cameras connected to the Jetson">USB cameras</button>
+            </div>
+            <div class="input-hint" id="camera-selection-hint">Select a source and device in each camera tile.</div>
+            <button id="store-demo" type="button" class="btn btn-secondary recorded-source-option">Store demo</button>
+          </div>
+          <div class="form-group camera-run-actions">
+            <button id="start" type="button" class="btn btn-primary"><svg class="lucide" data-lucide="play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 3 14 9-14 9V3Z"/></svg> <span id="start-label">Open Cameras and<br>Start VLM Analysis</span></button>
+            <button id="stop" type="button" class="btn btn-secondary" disabled><svg class="lucide" data-lucide="square" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/></svg> Stop</button>
+          </div>
+          <div class="form-group camera-runtime-settings"><label for="video-understanding">Video understanding</label><select id="video-understanding" aria-describedby="temporal-hint"><option value="single">Single frame</option><option value="temporal">Temporal video (recent frames)</option></select></div>
+          <div id="temporal-window-field" class="form-group camera-runtime-settings" hidden><label for="temporal-window">Recent video window</label><select id="temporal-window"><option value="2">2 seconds</option><option value="4" selected>4 seconds</option><option value="8">8 seconds</option></select></div>
+          <div id="temporal-hint" class="input-hint temporal-hint" hidden></div>
+          <div class="form-group camera-runtime-settings"><label for="process-every">Frame Processing Interval</label><input id="process-every" type="number" min="1" max="3600" step="1" value="30"><div class="input-hint">Process every Nth frame (Lower = more frequent)</div></div>
         </div>
       </details>
       <details class="panel inference-settings" open>
-        <summary class="panel-header"><span class="panel-title">Segmentation</span><span class="panel-toggle" aria-hidden="true">▼</span></summary>
+        <summary class="panel-header"><span class="panel-title"><span class="panel-icon"><svg class="lucide" data-lucide="edit-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L9 17l-4 1 1-4Z"/></svg></span>Prompt Editor</span><span class="panel-toggle" aria-hidden="true">▼</span></summary>
+        <div class="panel-content">
+          <div id="vlm-controls">
+            <div class="form-group"><label for="prompt-preset">Quick Presets</label><select id="prompt-preset">
+                <option value="">-- Select a preset --</option>
+                <option value="Describe what you see in this image in one sentence.">Scene Description</option>
+                <option value="List all objects you can see in this image, separated by commas.">Object Detection</option>
+                <option value="Describe the person&#x27;s activity and what they are doing.">Activity Recognition</option>
+                <option value="Are there any safety hazards visible? Answer with &#x27;ALERT: description&#x27; or &#x27;SAFE&#x27;.">Safety Monitoring</option>
+                <option value="Provide a detailed description of the scene for a visually impaired person.">Accessibility</option>
+                <option value="Read and transcribe any text visible in the image.">OCR / Text Reading</option>
+                <option value="Answer with Yes or No only: Is there a person visible?">Yes/No Question</option>
+              </select></div>
+            <div class="form-group"><label for="shared-prompt">Custom Prompt</label><textarea id="shared-prompt" rows="3" placeholder="Enter your custom prompt here..."></textarea></div>
+            <div class="form-group"><label for="max-tokens">Max Tokens</label><input id="max-tokens" type="number" min="1" max="32768" step="1" value="32"><div class="input-hint">Lower for short answers (Yes/No: ~10), higher for detailed descriptions</div></div>
+          </div>
+          <details class="advanced"><summary>Advanced settings</summary>
+            <label class="feature-toggle" for="vlm-enabled">VLM inference <span><input id="vlm-enabled" type="checkbox" aria-label="Enable VLM inference" checked><span>On</span></span></label>
+            <div class="form-group"><label for="description-mode">Response style</label><select id="description-mode"><option value="fast">Fast actions</option><option value="detailed">Detailed actions</option></select><p id="description-mode-hint" class="input-hint"></p></div>
+            <div class="form-group"><label for="image-max-edge">VLM image size</label><select id="image-max-edge"><option value="512">512 px</option><option value="640">640 px</option><option value="960">960 px</option><option value="0">Original size</option></select></div>
+          </details>
+        </div>
+      </details>
+      <details class="panel inference-settings">
+        <summary class="panel-header"><span class="panel-title"><span class="panel-icon"><svg class="lucide" data-lucide="layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 10 5-10 5L2 8l10-5ZM2 12l10 5 10-5M2 16l10 5 10-5"/></svg></span>Segmentation</span><span class="panel-toggle" aria-hidden="true">▼</span></summary>
         <div class="panel-content">
           <label class="feature-toggle" for="segmentation-enabled">Object masks <span><input id="segmentation-enabled" type="checkbox" aria-label="Enable segmentation" checked><span>On</span></span></label>
           <p id="segmentation-status" class="runtime-status" role="status">Checking model…</p>
@@ -113,8 +170,7 @@
         </div>
         <div class="toolbar-actions">
           <button id="presentation-toggle" type="button" class="btn btn-secondary" aria-pressed="false" hidden>Focus view</button>
-          <button id="stop" type="button" class="btn btn-secondary" disabled>Stop</button>
-          <button id="start" type="button" class="btn btn-primary">Start</button>
+          <button id="focus-stop" type="button" class="btn btn-secondary" hidden><svg class="lucide" data-lucide="square" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/></svg> Stop</button>
         </div>
       </div>
       <div id="notice" class="notice" role="alert" hidden></div>
@@ -124,12 +180,43 @@
         <p id="demo-playback-note" class="hint"></p>
         <p id="presentation-attribution" class="presentation-attribution hint"></p>
       </details>
+      <div class="result-card" id="systemStatsCard">
+        <div class="result-header system-stats-header">
+          <div class="result-title"><svg class="lucide" data-lucide="activity" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg> Local System Stats</div>
+          <div class="system-identity" id="systemInfo">
+            <span id="systemInfoHeader">Loading...</span>
+            <img id="systemProductImage" alt="System" style="display: none;" onerror="this.style.display='none';">
+          </div>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-header"><span class="stat-label">GPU Utilization</span><span class="stat-value" id="gpuUtil">--%</span></div>
+            <div class="stat-bar"><div class="stat-bar-fill" id="gpuUtilBar" style="width: 0%"></div></div>
+            <canvas id="gpuUtilSparkline" class="sparkline" role="img" aria-label="GPU utilization history"></canvas>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header"><span class="stat-label">VRAM Usage</span><span class="stat-value" id="vramUsage">-- GB</span></div>
+            <div class="stat-bar"><div class="stat-bar-fill" id="vramBar" style="width: 0%"></div></div>
+            <canvas id="vramSparkline" class="sparkline" role="img" aria-label="VRAM usage history"></canvas>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header"><span class="stat-label">CPU Utilization</span><span class="stat-value" id="cpuUtil">--%</span></div>
+            <div class="stat-bar"><div class="stat-bar-fill" id="cpuBar" style="width: 0%"></div></div>
+            <canvas id="cpuSparkline" class="sparkline" role="img" aria-label="CPU utilization history"></canvas>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header"><span class="stat-label">System RAM</span><span class="stat-value" id="ramUsage">-- GB</span></div>
+            <div class="stat-bar"><div class="stat-bar-fill" id="ramBar" style="width: 0%"></div></div>
+            <canvas id="ramSparkline" class="sparkline" role="img" aria-label="System RAM usage history"></canvas>
+          </div>
+        </div>
+      </div>
     </section>
   </main>
   <template id="camera-template">
     <article class="camera-card video-card">
       <div class="camera-heading panel-header"><h2 class="camera-title"></h2><span class="camera-state status-badge disconnected">Ready</span></div>
-      <div class="source-controls"><div><label class="source-label">Source</label><select class="source"><option value="webrtc">Browser camera</option><option value="rtsp">RTSP stream</option><option value="demo">Recorded store video</option></select></div><div class="device-field"><label class="device-label">Camera device</label><select class="device"><option value="">Enable cameras to select a device</option></select></div><div class="rtsp-field" hidden><label class="rtsp-label">Stream URL</label><input class="rtsp-url" type="url" placeholder="rtsp://camera-address/stream" autocomplete="off" spellcheck="false"></div><div class="demo-field" hidden><label class="demo-label">Recorded clip</label><select class="demo"><option value="">Loading store clips…</option></select></div></div>
+      <div class="source-controls"><div><label class="source-label">Source</label><select class="source"><option value="webrtc">Browser camera</option><option value="usb">Jetson USB camera</option><option value="rtsp">RTSP stream</option><option value="demo">Recorded store video</option></select></div><div class="device-field"><label class="device-label">Camera device</label><select class="device"><option value="">Enable cameras to select a device</option></select></div><div class="usb-field" hidden><label class="usb-label">Jetson device</label><select class="usb-device"><option value="">Select a USB camera</option></select></div><div class="rtsp-field" hidden><label class="rtsp-label">Stream URL</label><input class="rtsp-url" type="url" placeholder="rtsp://camera-address/stream" autocomplete="off" spellcheck="false"></div><div class="demo-field" hidden><label class="demo-label">Recorded clip</label><select class="demo"><option value="">Loading store clips…</option></select></div></div>
       <div class="video-stage"><video autoplay playsinline muted></video><span class="recorded-label" hidden>Recorded · loop</span><span class="video-fps" hidden>Video — FPS</span><div class="video-placeholder"><svg viewBox="0 0 48 48" width="42" height="42" fill="none" aria-hidden="true"><rect x="5" y="13" width="27" height="24" rx="5" stroke="currentColor" stroke-width="2"/><path d="m32 21 10-6v20l-10-6" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Waiting for camera</span></div><button class="play-video btn btn-secondary" type="button" hidden>Play stream</button></div>
       <div class="camera-insights" tabindex="0" aria-label="Camera analysis and previous results">
         <div class="description-heading"><span class="insight-label vlm-insight-label">VLM Output</span><span class="vlm-metrics"></span></div>

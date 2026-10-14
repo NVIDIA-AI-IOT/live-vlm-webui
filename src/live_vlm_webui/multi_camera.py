@@ -26,6 +26,7 @@ from .local_video_track import LocalVideoTrack
 from .rtsp_track import RTSPVideoTrack
 from .segmentation import SegmentationConfig, SegmentationService, SegmentationUnavailable
 from .temporal_buffer import TemporalConfig
+from .usb_camera import USBVideoTrack, discover_usb_cameras
 from .video_processor import VideoProcessorTrack
 from .vlm_service import VLMService
 
@@ -311,6 +312,7 @@ class Camera:
     temporal: TemporalConfig = field(default_factory=TemporalConfig)
     rtsp_url: str | None = field(default=None, repr=False)
     demo_id: str | None = None
+    usb_device_id: str | None = None
     service: VLMService | None = field(default=None, repr=False)
     state: str = "waiting"
     error: str | None = None
@@ -337,6 +339,7 @@ class Camera:
             "camera_id": self.camera_id,
             "source": self.source,
             "demo_id": self.demo_id,
+            "usb_device_id": self.usb_device_id,
             "state": self.state,
             "error": self.error,
             "model": self.settings.get("model"),
@@ -476,12 +479,14 @@ class MultiCameraManager:
             vlm_enabled=vlm_enabled,
             preview_mode=preview_mode,
         )
+        usb_devices = set()
         for item in cameras:
             if not isinstance(item, dict) or set(item) - {
                 "camera_id",
                 "source",
                 "rtsp_url",
                 "demo_id",
+                "usb_device_id",
                 "vlm",
                 "process_every",
                 "max_latency",
@@ -499,8 +504,8 @@ class MultiCameraManager:
             if camera_id in session.cameras:
                 raise ValueError("camera_id values must be unique within a session")
             source = item.get("source", "webrtc")
-            if source not in ("webrtc", "rtsp", "demo"):
-                raise ValueError("Camera source must be webrtc, rtsp or demo")
+            if source not in ("webrtc", "rtsp", "demo", "usb"):
+                raise ValueError("Camera source must be webrtc, rtsp, demo or usb")
             rtsp_url = item.get("rtsp_url")
             if source == "rtsp":
                 if not isinstance(rtsp_url, str):
@@ -520,6 +525,17 @@ class MultiCameraManager:
                     ) from exc
             elif demo_id is not None:
                 raise ValueError("demo_id is only valid for demo sources")
+            usb_device_id = item.get("usb_device_id")
+            if source == "usb":
+                if not isinstance(usb_device_id, str) or not re.fullmatch(
+                    r"video[0-9]+", usb_device_id
+                ):
+                    raise ValueError("Jetson USB cameras require a device from the USB camera list")
+                if usb_device_id in usb_devices:
+                    raise ValueError("Select a different USB camera for each stream")
+                usb_devices.add(usb_device_id)
+            elif usb_device_id is not None:
+                raise ValueError("usb_device_id is only valid for Jetson USB cameras")
             camera_settings = {**settings, **validate_vlm(item.get("vlm", {}))}
             if vlm_enabled and not camera_settings.get("model"):
                 raise web.HTTPServiceUnavailable(
@@ -538,6 +554,7 @@ class MultiCameraManager:
                 temporal=camera_temporal,
                 rtsp_url=rtsp_url,
                 demo_id=demo_id,
+                usb_device_id=usb_device_id,
             )
         return session
 
@@ -550,6 +567,29 @@ class MultiCameraManager:
                 raise web.HTTPConflict(text="Session already exists")
             if len(self.sessions) >= self.max_sessions:
                 raise web.HTTPServiceUnavailable(text="Multi-camera session limit reached")
+            requested_usb = {
+                camera.usb_device_id
+                for camera in session.cameras.values()
+                if camera.source == "usb"
+            }
+            if requested_usb:
+                occupied_usb = {
+                    camera.usb_device_id
+                    for existing in self.sessions.values()
+                    for camera in existing.cameras.values()
+                    if camera.source == "usb"
+                }
+                if requested_usb & occupied_usb:
+                    raise web.HTTPConflict(
+                        text="A selected USB camera is already in use by another session"
+                    )
+                available_usb = {
+                    camera["device_id"] for camera in await asyncio.to_thread(discover_usb_cameras)
+                }
+                if not requested_usb <= available_usb:
+                    raise ValueError(
+                        "A selected USB camera is unavailable. Refresh USB cameras and select again"
+                    )
             self.sessions[session.session_id] = session
             tasks = []
             try:
@@ -583,9 +623,16 @@ class MultiCameraManager:
                         tasks.append(asyncio.create_task(self._open_rtsp(session, camera)))
                     elif camera.source == "demo":
                         tasks.append(asyncio.create_task(self._open_demo(session, camera)))
+                    elif camera.source == "usb":
+                        tasks.append(asyncio.create_task(self._open_usb(session, camera)))
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 if any(isinstance(result, BaseException) for result in results):
-                    raise web.HTTPBadGateway(text="Failed to open a camera source")
+                    detail = "Failed to open a camera source"
+                    if requested_usb:
+                        detail += (
+                            ". Close other apps using the USB cameras and check their connections"
+                        )
+                    raise web.HTTPBadGateway(text=detail)
                 session.state = "active"
                 return session
             except BaseException:
@@ -598,6 +645,10 @@ class MultiCameraManager:
 
     async def _open_rtsp(self, session, camera):
         camera.track = await RTSPVideoTrack.create(camera.rtsp_url)
+        self._attach(session, camera, camera.track)
+
+    async def _open_usb(self, session, camera):
+        camera.track = await USBVideoTrack.create(camera.usb_device_id)
         self._attach(session, camera, camera.track)
 
     async def _open_demo(self, session, camera):
@@ -965,6 +1016,10 @@ async def create_session(request):
         return api_error(503, str(exc))
 
 
+async def usb_cameras(request):
+    return web.json_response({"cameras": await asyncio.to_thread(discover_usb_cameras)})
+
+
 async def demo_videos(request):
     manager = request.app[MULTI_CAMERA_KEY]
     return web.json_response(
@@ -1053,6 +1108,7 @@ def register_multi_camera(app, defaults_provider):
     app[MULTI_CAMERA_KEY] = manager
     base = "/api/multi-camera/sessions"
     app.router.add_get("/api/demo/videos", demo_videos)
+    app.router.add_get("/api/usb-cameras", usb_cameras)
     app.router.add_get("/api/segmentation/status", segmentation_status)
     app.router.add_post(base, create_session)
     app.router.add_get(base + "/{session_id}", session_status)

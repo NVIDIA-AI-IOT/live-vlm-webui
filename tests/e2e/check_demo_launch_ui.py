@@ -18,23 +18,29 @@ from playwright.async_api import async_playwright
 STATIC = Path(__file__).resolve().parents[2] / "src/live_vlm_webui/static"
 MOCK_BROWSER = r"""
 window.__cameraRequests = [];
+window.__transceiverRequests = [];
 window.__permission = false;
 window.__sockets = [];
 const cameraCount = Number(new URLSearchParams(location.search).get('test_cameras') ?? 4);
 class MockSocket extends EventTarget {
-  constructor() {
-    super();
+  constructor(url) {
+    super(); this.url = String(url); this.readyState = 0; this.sent = [];
     window.__sockets.push(this);
-    setTimeout(() => this.dispatchEvent(new Event('open')), 5);
+    setTimeout(() => { this.readyState = 1; this.dispatchEvent(new Event('open')); }, 5);
   }
-  close() { this.dispatchEvent(new Event('close')); }
+  send(value) { this.sent.push(value); }
+  close() {
+    if (this.readyState === 3) return;
+    this.readyState = 3; this.dispatchEvent(new Event('close'));
+  }
 }
 window.WebSocket = MockSocket;
 class MockPeer extends EventTarget {
   constructor() {
     super(); this.connectionState = 'new'; this.iceGatheringState = 'complete';
   }
-  addTrack() {} addTransceiver() {}
+  addTrack() {}
+  addTransceiver(kind, options) { window.__transceiverRequests.push({kind, ...options}); }
   async createOffer() { return {type: 'offer', sdp: 'mock-offer'}; }
   async setLocalDescription(value) { this.localDescription = value; }
   async setRemoteDescription() {
@@ -98,6 +104,23 @@ async def main():
                         "recommended_confidence": 0.1,
                     }
                 )
+            if path == "/api/usb-cameras":
+                state["usb_catalog_requests"] = state.get("usb_catalog_requests", 0) + 1
+                if state.get("usb_error"):
+                    return await request.fulfill(
+                        status=503, json={"error": "USB discovery unavailable"}
+                    )
+                return await request.fulfill(
+                    json={
+                        "cameras": [
+                            {
+                                "device_id": f"video{index * 2}",
+                                "label": f"HD Pro Webcam C920 (Jetson {index + 1})",
+                            }
+                            for index in range(state.get("usb_cameras", 2))
+                        ],
+                    }
+                )
             if path == "/api/demo/videos":
                 return await request.fulfill(
                     json={
@@ -156,10 +179,10 @@ async def main():
         page_errors = []
         page.on("pageerror", lambda error: page_errors.append(str(error)))
 
-        async def load(query="", **options):
+        async def load(query="", *, origin="http://127.0.0.1:18765", **options):
             state.clear()
             state.update(created=[], deleted=[], **options)
-            await page.goto("http://127.0.0.1:18765/multi-camera" + query)
+            await page.goto(origin + "/multi-camera" + query)
             await page.wait_for_function(
                 "!document.querySelector('#model-status').textContent.includes('Loading')"
             )
@@ -170,7 +193,12 @@ async def main():
             )
 
         async def stopped():
-            await page.locator("#stop").click()
+            stop = (
+                page.locator("#focus-stop")
+                if await page.locator("#focus-stop").is_visible()
+                else page.locator("#stop")
+            )
+            await stop.click()
             await page.wait_for_function(
                 "document.querySelector('#session-status').textContent === 'Not started'"
             )
@@ -181,6 +209,85 @@ async def main():
         assert await page.locator("#video-understanding").input_value() == "single"
         assert await page.locator("#temporal-window").input_value() == "4"
         checks.append("normal page defaults unchanged")
+
+        for count in (2, 4):
+            await load("?test_cameras=0", origin="https://jetson.example.test", usb_cameras=count)
+            await page.locator("#two-cameras" if count == 2 else "#four-cameras").click()
+            before_refresh = state.get("usb_catalog_requests", 0)
+            await page.locator("#usb-cameras").click()
+            await page.wait_for_function(
+                "document.querySelector('#notice').textContent.includes('Jetson USB cameras ready')"
+            )
+            assert state["usb_catalog_requests"] > before_refresh
+            assert not state["created"], "Selecting Jetson cameras must wait for Start"
+            assert await page.locator(".source").evaluate_all(
+                "items => items.every(item => item.value === 'usb')"
+            )
+            assert await page.locator(".usb-device").evaluate_all(
+                "items => items.map(item => item.value)"
+            ) == [f"video{index * 2}" for index in range(count)]
+            assert "HD Pro Webcam C920" in await page.locator(".usb-device").first.text_content()
+            assert await page.locator(".usb-field").first.is_visible()
+            assert not await page.locator(".device-field").first.is_visible()
+            await page.locator("#start").click()
+            await connected()
+            assert [camera["usb_device_id"] for camera in state["created"][0]["cameras"]] == [
+                f"video{index * 2}" for index in range(count)
+            ]
+            assert all(camera["source"] == "usb" for camera in state["created"][0]["cameras"])
+            assert await page.evaluate("window.__cameraRequests.length") == 0
+            assert (
+                await page.evaluate("window.__transceiverRequests")
+                == [{"kind": "video", "direction": "recvonly"}] * count
+            )
+            await stopped()
+            assert state["deleted"] == [state["created"][0]["session_id"]]
+        checks.append(
+            "remote browser selects two/four Jetson USB cameras with distinct IDs, recvonly video and no local camera permission"
+        )
+
+        await load("?test_cameras=0", usb_cameras=2)
+        await page.locator("#four-cameras").click()
+        await page.locator("#usb-cameras").click()
+        await page.wait_for_function(
+            "document.querySelector('#notice').textContent.includes('needs 4 USB cameras')"
+        )
+        assert "found 2" in await page.locator("#notice").text_content()
+        assert not state["created"]
+        assert await page.evaluate("window.__cameraRequests.length") == 0
+        checks.append("insufficient Jetson USB cameras give a clear count without starting streams")
+
+        await page.locator("#two-cameras").click()
+        await page.locator("#usb-cameras").click()
+        await page.wait_for_function(
+            "document.querySelector('#notice').textContent.includes('Jetson USB cameras ready')"
+        )
+        await page.locator("#camera-2-usb").select_option("video0")
+        await page.locator("#start").click()
+        await page.wait_for_function(
+            "document.querySelector('#notice').textContent.includes('different Jetson USB device')"
+        )
+        assert not state["created"]
+        assert await page.evaluate("window.__cameraRequests.length") == 0
+        checks.append("duplicate Jetson USB selections are rejected before session creation")
+
+        await page.locator("#camera-2-usb").select_option("video2")
+        state["usb_cameras"] = 1
+        await page.locator("#start").click()
+        await page.wait_for_function(
+            "document.querySelector('#notice').textContent.includes('select an available USB camera')"
+        )
+        assert not state["created"]
+        checks.append("Start refreshes Jetson devices and rejects a disconnected camera")
+
+        await load("?test_cameras=0", usb_error=True)
+        await page.locator("#usb-cameras").click()
+        await page.wait_for_function(
+            "document.querySelector('#notice').textContent.includes('USB discovery unavailable')"
+        )
+        assert not state["created"]
+        assert await page.locator("#usb-cameras").is_enabled()
+        checks.append("USB discovery failures remain visible and allow retry")
 
         await load("?demo=store&cameras=4&autostart=1&temporal=1")
         await connected()
@@ -267,12 +374,20 @@ async def main():
 
         await load("?kiosk=1&demo=store&cameras=2&autostart=1")
         await connected()
-        await page.evaluate("window.__sockets.at(-1).close()")
-        await page.wait_for_function("window.__sockets.length === 2")
+        await page.evaluate(
+            "window.__sockets.filter(socket => socket.url.includes('/api/multi-camera/')).at(-1).close()"
+        )
+        await page.wait_for_function(
+            "window.__sockets.filter(socket => socket.url.includes('/api/multi-camera/')).length === 2"
+        )
         assert len(state["created"]) == 1, "Transient results outage duplicated the session"
         state["session_missing"] = True
-        await page.evaluate("window.__sockets.at(-1).close()")
-        await page.wait_for_function("window.__sockets.length === 1")
+        await page.evaluate(
+            "window.__sockets.filter(socket => socket.url.includes('/api/multi-camera/')).at(-1).close()"
+        )
+        await page.wait_for_function(
+            "window.__sockets.filter(socket => socket.url.includes('/api/multi-camera/')).length === 1"
+        )
         await connected()
         assert len(state["created"]) == 2
         assert state["created"][0]["session_id"] != state["created"][1]["session_id"]

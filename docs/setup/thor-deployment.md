@@ -21,8 +21,11 @@ The browser selects inputs automatically:
 | Zero or one | Four recorded store streams. |
 
 The dedicated Chromium profile grants camera permission automatically and uses
-real camera video. The browser must run **on the Thor** to use cameras attached
-to it. The kiosk opens `http://localhost:8090/multi-camera`, binds the WebUI to
+real camera video. The kiosk browser runs **on the Thor**. The normal
+multi-stream UI also offers **Jetson USB camera** for access to attached cameras
+from a remote browser: choose **2 cameras**, click **USB cameras** in
+**Camera and App Control**, then **Open Cameras and Start VLM Analysis**. **Browser camera** always refers to the computer running the
+browser. The kiosk opens `http://localhost:8090/multi-camera`, binds the WebUI to
 loopback, and avoids self-signed certificate prompts. This localhost exception
 does not enable camera access from a LAN HTTP address; the normal remote WebUI
 continues to use HTTPS.
@@ -59,6 +62,9 @@ fullscreen and window modes.
 
 Camera flags are optional. The UI includes **2 cameras** and **4 cameras**
 controls; the installer selects automatically when no camera option is given.
+Connect USB cameras before starting the application. The Thor runner passes
+attached USB video devices into its container automatically. If cameras are
+connected later, recreate the app container to include the new device mappings.
 Append options to the same installer command:
 
 | Option | Behavior |
