@@ -23,6 +23,8 @@ from pathlib import Path
 BEGIN = "# BEGIN Live VLM multi-stream kiosk"
 END = "# END Live VLM multi-stream kiosk"
 PROC = Path("/proc")
+# Bump when camera container mounts/permissions require a managed server handoff.
+CAMERA_DEVICE_LAYOUT = "usb-hotplug-v1"
 SERVER_IDENTITY_KEYS = (
     "KIOSK_MODE",
     "KIOSK_REPO",
@@ -152,8 +154,12 @@ def configure(path, repo, config, settings, source, cameras):
         "KIOSK_API_BASE": settings["vlm_api_base"],
         "KIOSK_MODEL": settings["vlm_model"],
         "KIOSK_VLM_BACKEND": settings["vlm_backend"],
+        "KIOSK_CAMERA_DEVICE_LAYOUT": CAMERA_DEVICE_LAYOUT,
         "KIOSK_SERVER_SIGNATURE": hashlib.sha256(
-            json.dumps(settings, sort_keys=True).encode()
+            json.dumps(
+                {"settings": settings, "camera_device_layout": CAMERA_DEVICE_LAYOUT},
+                sort_keys=True,
+            ).encode()
         ).hexdigest(),
         "KIOSK_BACKEND_SIGNATURE": hashlib.sha256(
             json.dumps(backend_settings, sort_keys=True).encode()
@@ -312,14 +318,13 @@ def managed_server_running(repo, config):
         if process.stat().st_uid != os.getuid():
             return False
         command = (process / "cmdline").read_bytes().rstrip(b"\0").decode().split("\0")
-        return command[1:] == [
+        return command[1:-1] == [
             str(repo / "scripts/thor_demo.py"),
             "--config",
             str(config),
             "webui",
             "--skip-build",
-            "--localhost-http",
-        ]
+        ] and command[-1] in ("--localhost-http", "--no-ssl")
     except (OSError, ValueError, subprocess.SubprocessError):
         return False
 
@@ -382,7 +387,7 @@ def pending_server_settings(path, repo, config, settings):
 def check_start(settings, *, repo=None, config=None, env_path=None):
     try:
         service_state(settings, "server")
-    except ValueError as conflict:
+    except ValueError:
         candidates = [
             previous_server_settings(env_path, repo, config, settings),
             pending_server_settings(env_path, repo, config, settings),
@@ -400,7 +405,7 @@ def check_start(settings, *, repo=None, config=None, env_path=None):
             except ValueError:
                 continue
         else:
-            raise conflict
+            raise
     if local_backend(settings):
         service_state(settings, "backend")
     # A user unit cannot inherit a foreground terminal's password-only sudo cache.
@@ -439,7 +444,8 @@ def run_service(repo, config, settings, kind):
             )
             reused = True
         time.sleep(5)
-    action = ["cosmos"] if kind == "backend" else ["webui", "--skip-build", "--localhost-http"]
+    transport = "--no-ssl" if settings.get("kiosk_lan_access", False) else "--localhost-http"
+    action = ["cosmos"] if kind == "backend" else ["webui", "--skip-build", transport]
     command = [sys.executable, str(repo / "scripts/thor_demo.py"), "--config", str(config), *action]
     os.execv(sys.executable, command)
 

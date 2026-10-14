@@ -1,0 +1,3 @@
+# SPDX-License-Identifier: Apache-2.0
+# Reconcile current state; delayed remove events must not delete a reconnected camera.
+SUBSYSTEM=="video4linux", KERNEL=="video[0-9]*", ACTION=="add|change|remove", RUN+="/usr/bin/python3 /usr/local/libexec/live-vlm-webui/usb_camera_devices.py %k"

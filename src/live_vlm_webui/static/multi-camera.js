@@ -29,6 +29,13 @@
   let usbCatalogLoaded = false;
   let usbCatalogPromise = null;
   let loadingUsb = false;
+  const usbSelections = new Map();
+  let usbRefreshTimer = null;
+  let usbRefreshPromise = null;
+  let usbRefreshPaused = false;
+  let kioskCameraMode = null;
+  let kioskCameraTransition = false;
+  let kioskLaunchGeneration = 0;
   let activeRun = null;
   let phase = "idle";
   let presentationPreferred = false;
@@ -68,7 +75,7 @@
     phase = next;
     const busy = next !== "idle";
     $("start").disabled = busy || enumerating || loadingDemo || loadingUsb || preparingDemo;
-    $("stop").disabled = !busy || next === "stopping";
+    $("stop").disabled = (!busy && !kioskCameraMode && !(preparingDemo && kioskAutomatic)) || (next === "stopping" && !kioskCameraMode);
     $("focus-stop").disabled = $("stop").disabled;
     if (busy) toggleApiPresets(false);
     $("two-cameras").disabled = busy || loadingDemo || loadingUsb || preparingDemo;
@@ -77,13 +84,15 @@
     $("settings-note").hidden = !busy;
     $("enable-cameras").disabled = busy || enumerating || loadingDemo || loadingUsb || preparingDemo;
     $("usb-cameras").disabled = busy || enumerating || loadingDemo || loadingUsb || preparingDemo;
-    $("store-demo").disabled = busy || enumerating || loadingDemo || loadingUsb || preparingDemo;
     $("multi-stream-view").querySelectorAll(".inference-settings input, .inference-settings textarea, .inference-settings select, .inference-settings button, .camera-runtime-settings input, .camera-runtime-settings select, .source-controls input, .source-controls select, .camera-prompt textarea").forEach((element) => {
       element.disabled = busy || loadingUsb || preparingDemo;
     });
     const labels = { idle: "Not started", starting: "Connecting cameras", running: "Cameras connected", stopping: "Stopping cameras" };
     badge($("session-status"), labels[next], next === "running" ? "live" : busy ? "pending" : "");
-    if (!busy) syncToggles();
+    if (!busy) {
+      populateUsbDevices();
+      syncToggles();
+    }
     syncSegmentationProfileControls();
     syncSourceControls();
     updatePresentation();
@@ -180,6 +189,7 @@
     if ($("vlm-enabled").checked) {
       $("start-label").append(document.createTextNode(" and"), document.createElement("br"), document.createTextNode("Start VLM Analysis"));
     }
+    syncUsbGuidance();
   }
 
   function selectSource(source, browserOnly = false) {
@@ -190,6 +200,7 @@
       tile.source.value = source === "rtsp" ? "rtsp" : browserOnly ? "webrtc" : lastWebcamSources.get(id) || "webrtc";
       tile.updateSource();
     }
+    populateUsbDevices();
     rememberCameras();
     syncSourceControls();
   }
@@ -234,7 +245,7 @@
       savedCameras.set(id, {
         source: tile.source.value,
         device: tile.device.value,
-        usb: tile.usb.value,
+        usb: tile.usb.value || usbSelections.get(id) || "",
         rtsp: tile.rtsp.value,
         demo: tile.demo.value,
         prompt: tile.prompt.value,
@@ -246,7 +257,7 @@
     for (const [id, tile] of tiles) {
       const previous = tile.device.value || savedCameras.get(id)?.device;
       tile.device.replaceChildren();
-      const placeholder = new Option(devices.length ? "Select a camera" : "Enable cameras to select a device", "");
+      const placeholder = new Option(devices.length ? "Select a camera" : "Allow browser cameras to select a device", "");
       tile.device.add(placeholder);
       devices.forEach((device, index) => tile.device.add(new Option(device.label || `Camera device ${index + 1}`, device.deviceId)));
       if (previous && devices.some((device) => device.deviceId === previous)) {
@@ -257,14 +268,78 @@
     }
   }
 
-  function populateUsbDevices() {
+  function syncUsbGuidance() {
+    const usbTiles = [...tiles.entries()].filter(([, tile]) => tile.source.value === "usb");
+    const available = new Set(usbDevices.map((device) => device.device_id));
+    const selected = new Set();
+    let missing = false;
     for (const [id, tile] of tiles) {
-      const previous = tile.usb.value || savedCameras.get(id)?.usb;
-      tile.usb.replaceChildren(new Option(usbDevices.length ? "Select a USB camera" : "No USB cameras on the Jetson", ""));
-      for (const device of usbDevices) tile.usb.add(new Option(device.label || device.device_id, device.device_id));
-      if (previous) tile.usb.value = usbDevices.some((device) => device.device_id === previous) ? previous : "";
-      else if (usbDevices[tile.number - 1]) tile.usb.value = usbDevices[tile.number - 1].device_id;
+      let message = "";
+      if (phase === "idle" && tile.source.value === "usb") {
+        if (tile.usb.value && available.has(tile.usb.value) && !selected.has(tile.usb.value)) {
+          selected.add(tile.usb.value);
+        } else {
+          missing = true;
+          const remembered = usbSelections.get(id);
+          message = remembered && !available.has(remembered)
+            ? "Camera disconnected. Reconnect it or select another device."
+            : usbDevices.length < usbTiles.length
+              ? "Waiting for another USB camera. Connect it or change this source."
+              : "Select a different USB camera for this stream.";
+        }
+      }
+      tile.usbHint.textContent = message;
+      tile.usbHint.hidden = !message;
+      tile.usb.setAttribute("aria-invalid", String(Boolean(message)));
     }
+    const summary = $("usb-selection-status");
+    summary.hidden = !missing;
+    summary.textContent = !missing ? "" : usbDevices.length < usbTiles.length
+      ? `${usbDevices.length} of ${usbTiles.length} USB cameras detected. Connect more cameras or change a source.`
+      : "Select a different USB camera for each USB stream, or reconnect the missing camera.";
+    $("start").disabled = phase !== "idle" || enumerating || loadingDemo || loadingUsb || preparingDemo || missing;
+  }
+
+  function populateUsbDevices(changedId = null) {
+    if (phase !== "idle") return;
+    const available = new Set(usbDevices.map((device) => device.device_id));
+    const preferences = new Map([...tiles].map(([id, tile]) => [id,
+      usbSelections.has(id) ? usbSelections.get(id) : tile.usb.value || savedCameras.get(id)?.usb || null,
+    ]));
+    const active = [...tiles].filter(([, tile]) => tile.source.value === "usb")
+      .sort(([left], [right]) => Number(left === changedId) - Number(right === changedId));
+    const assigned = new Map();
+    const used = new Set();
+    // Reserve existing choices first, so a newly selected USB source cannot take
+    // a device from another tile. Missing preferences survive unplug/replug.
+    for (const [id] of active) {
+      const previous = preferences.get(id);
+      if (previous && available.has(previous)) {
+        if (!used.has(previous)) { assigned.set(id, previous); used.add(previous); }
+        else { preferences.set(id, null); usbSelections.delete(id); }
+      }
+    }
+    for (const [id] of active) {
+      if (assigned.has(id)) continue;
+      const choice = preferences.get(id) === null ? [...available].find((device) => !used.has(device)) : "";
+      assigned.set(id, choice || "");
+      if (choice) used.add(choice);
+    }
+    for (const [id, tile] of tiles) {
+      const previous = preferences.get(id);
+      if (previous) usbSelections.set(id, previous);
+      const choice = assigned.has(id) ? assigned.get(id)
+        : previous === null ? usbDevices[tile.number - 1]?.device_id || "" : available.has(previous) ? previous : "";
+      if (choice) usbSelections.set(id, choice);
+      tile.usb.replaceChildren(new Option(usbDevices.length ? "Select a USB camera" : "No USB cameras on the Jetson", ""));
+      for (const device of usbDevices) {
+        const option = new Option(device.label || device.device_id, device.device_id);
+        option.disabled = tile.source.value === "usb" && used.has(device.device_id) && choice !== device.device_id;
+        tile.usb.add(option);
+      }
+      tile.usb.value = choice;
+    }
+    syncUsbGuidance();
   }
 
   async function loadUsbCameras(force = false) {
@@ -279,36 +354,144 @@
         return true;
       });
       usbCatalogLoaded = true;
-      populateUsbDevices();
+      if (phase === "idle") populateUsbDevices();
       return usbDevices;
     })();
     try { return await usbCatalogPromise; }
     finally { usbCatalogPromise = null; }
   }
 
+  function cancelKioskAutomation() {
+    kioskAutomatic = false;
+    kioskCameraMode = null;
+    kioskLaunchGeneration += 1;
+    preparingDemo = false;
+  }
+
+  function kioskCameraPlan(mode) {
+    const count = mode.cameras || (usbDevices.length >= 4 ? 4 : 2);
+    if (usbDevices.length >= count) {
+      const available = new Set(usbDevices.map((device) => device.device_id));
+      const ids = [...new Set([...(mode.selectedIds || []).filter((id) => available.has(id)), ...available])].slice(0, count);
+      return { source: "usb", count, ids, key: `usb:${ids.join(",")}` };
+    }
+    if (mode.source === "auto") return { source: "demo", count: mode.cameras || 4, key: `demo:${mode.cameras || 4}` };
+    return { source: "waiting", count, key: `waiting:${count}` };
+  }
+
+  async function reconcileKioskCameras() {
+    const mode = kioskCameraMode;
+    if (!mode || kioskCameraTransition || preparingDemo || !["idle", "running"].includes(phase) || usbRefreshPaused) return;
+    const generation = kioskLaunchGeneration;
+    const current = () => kioskCameraMode === mode && kioskLaunchGeneration === generation && !usbRefreshPaused;
+    const plan = kioskCameraPlan(mode);
+    if (mode.appliedKey === plan.key && (phase === "running" || plan.source === "waiting")) return;
+    if (mode.attemptedKey === plan.key && Date.now() < mode.retryAt) return;
+    kioskCameraTransition = true;
+    try {
+      if (!mode.ready) {
+        preparingDemo = true;
+        setPhase(phase);
+        const [segmentation, models] = await Promise.all([checkSegmentation(), discoverModels()]);
+        if (!current()) return;
+        mode.ready = segmentation.available && Array.isArray(models?.models) && models.models.length > 0;
+        if (!mode.ready) { notice("Waiting for demo models…"); return; }
+      }
+      if (activeRun) {
+        const previous = activeRun;
+        await stopRun();
+        if (!current()) return;
+        if (previous.cleanupError) {
+          cancelKioskAutomation();
+          notice(previous.cleanupError);
+          setPhase(phase);
+          return;
+        }
+      }
+      if (!current()) return;
+      preparingDemo = true;
+      setPhase(phase);
+      renderCameras(plan.count);
+      if (plan.source === "demo") {
+        if (!await applyStoreDemo(current) || !current()) return;
+      } else {
+        storeDemoPreset = false;
+        populateUsbDevices();
+        for (const [id, tile] of tiles) {
+          tile.source.value = "usb";
+          if (plan.ids) {
+            tile.usb.value = plan.ids[tile.number - 1];
+            usbSelections.set(id, tile.usb.value);
+          }
+          tile.updateSource();
+        }
+        rememberCameras();
+        if (plan.ids) mode.selectedIds = plan.ids;
+      }
+      mode.appliedKey = plan.key;
+      if (plan.source === "waiting") {
+        notice(`Waiting for ${plan.count} USB cameras on the Jetson…`);
+        return;
+      }
+      presentationPreferred = true;
+      preparingDemo = false;
+      setPhase(phase);
+      mode.attemptedKey = plan.key;
+      mode.retryAt = Date.now() + 10000;
+      const run = await start();
+      if (current() && run?.cleanupError) {
+        cancelKioskAutomation();
+        notice(run.cleanupError);
+      }
+    } catch {
+      // Discovery or readiness may be temporarily offline. The next refresh retries.
+    } finally {
+      kioskCameraTransition = false;
+      if (kioskCameraMode === mode && kioskLaunchGeneration === generation) preparingDemo = false;
+      setPhase(phase);
+    }
+  }
+
+  async function refreshUsbCatalog(force = false) {
+    if (usbRefreshPromise) return usbRefreshPromise;
+    if (usbRefreshPaused || (!force && phase !== "idle" && !kioskCameraMode)) return;
+    usbRefreshPromise = (async () => {
+      try {
+        await loadUsbCameras(true);
+        if (!usbRefreshPaused) await reconcileKioskCameras();
+      } catch { /* Background discovery must not replace an operator's message. */ }
+    })();
+    try { return await usbRefreshPromise; }
+    finally { usbRefreshPromise = null; }
+  }
+
+  function scheduleUsbRefresh() {
+    window.clearTimeout(usbRefreshTimer);
+    if (usbRefreshPaused) return;
+    usbRefreshTimer = window.setTimeout(async () => {
+      await refreshUsbCatalog();
+      scheduleUsbRefresh();
+    }, 3000);
+  }
+
   async function applyUsbCameras() {
     if (phase !== "idle" || loadingUsb) return;
     loadingUsb = true;
+    storeDemoPreset = false;
+    rememberCameras();
+    for (let number = 1; number <= 4; number += 1) {
+      const id = `camera-${number}`;
+      const saved = savedCameras.get(id) || {};
+      savedCameras.set(id, { ...saved, source: "usb" });
+      // This explicit bulk action can fill an intentionally cleared slot again.
+      if (usbSelections.get(id) === "") usbSelections.delete(id);
+    }
+    for (const tile of tiles.values()) { tile.source.value = "usb"; tile.updateSource(); }
     setPhase(phase);
     notice();
     try {
-      const available = await loadUsbCameras(true);
-      if (available.length < cameraCount) {
-        throw new Error(`This layout needs ${cameraCount} USB cameras on the Jetson; found ${available.length}.${available.length >= 2 ? " Choose 2 cameras or connect more." : " Connect the cameras and try again."}`);
-      }
-      storeDemoPreset = false;
-      rememberCameras();
-      for (let number = 1; number <= 4; number += 1) {
-        const id = `camera-${number}`;
-        const saved = savedCameras.get(id) || {};
-        savedCameras.set(id, { ...saved, source: "usb", usb: available[number - 1]?.device_id || "" });
-      }
-      for (const [id, tile] of tiles) {
-        tile.source.value = "usb";
-        tile.usb.value = savedCameras.get(id).usb;
-        tile.updateSource();
-      }
-      notice("Jetson USB cameras ready. Select Start.");
+      // Selection guidance is updated in place whenever the catalog changes.
+      await loadUsbCameras(true);
     } catch (error) { notice(error.message); }
     finally { loadingUsb = false; setPhase(phase); }
   }
@@ -327,7 +510,7 @@
       const select = (selector) => card.querySelector(selector);
       const tile = {
         number, card,
-        source: select(".source"), device: select(".device"), usb: select(".usb-device"), rtsp: select(".rtsp-url"), demo: select(".demo"),
+        source: select(".source"), device: select(".device"), usb: select(".usb-device"), usbHint: select(".usb-device-hint"), rtsp: select(".rtsp-url"), demo: select(".demo"),
         recordedLabel: select(".recorded-label"),
         prompt: select(".prompt"), promptDetails: select(".camera-prompt"), video: select("video"),
         placeholder: select(".video-placeholder"), state: select(".camera-state"),
@@ -347,6 +530,8 @@
         tile[field].id = `${id}-${field}`;
         select(labelClass).htmlFor = tile[field].id;
       }
+      tile.usbHint.id = `${id}-usb-hint`;
+      tile.usb.setAttribute("aria-describedby", tile.usbHint.id);
       const saved = savedCameras.get(id);
       if (saved) {
         tile.source.value = saved.source;
@@ -366,8 +551,19 @@
       };
       tile.updateSource = updateSource;
       tile.demo.addEventListener("change", updateDemoNote);
+      tile.usb.addEventListener("change", () => {
+        const duplicate = tile.usb.value && [...tiles].some(([otherId, other]) => otherId !== id
+          && other.source.value === "usb" && other.usb.value === tile.usb.value);
+        if (duplicate) tile.usb.value = usbSelections.get(id) || "";
+        else usbSelections.set(id, tile.usb.value);
+        savedCameras.set(id, { ...savedCameras.get(id), usb: tile.usb.value });
+        populateUsbDevices(id);
+        setPhase(phase);
+      });
       tile.source.addEventListener("change", () => {
         updateSource();
+        populateUsbDevices(id);
+        setPhase(phase);
         if (tile.source.value === "usb") loadUsbCameras().catch((error) => notice(error.message));
       });
       updateSource();
@@ -472,13 +668,14 @@
     finally { demoCatalogPromise = null; }
   }
 
-  async function applyStoreDemo() {
+  async function applyStoreDemo(isCurrent = () => true) {
     if (phase !== "idle" || loadingDemo) return;
     loadingDemo = true;
     setPhase(phase);
     notice();
     try {
       const installed = (await loadDemoCatalog(true)).filter((clip) => clip.available);
+      if (!isCurrent()) return false;
       const preferred = installed.filter((clip) => clip.preferred_for_realtime && clip.source_fps === 25);
       const available = demoCatalog.some((clip) => clip.preferred_for_realtime) ? preferred : installed;
       if (available.length < cameraCount) {
@@ -516,7 +713,7 @@
     }
   }
 
-  async function enumerateCameras(requestPermission = false) {
+  async function enumerateCameras(requestPermission = false, updateSelections = true) {
     if (!navigator.mediaDevices?.enumerateDevices) {
       throw new Error("Browser cameras require HTTPS or localhost. You can also use RTSP camera sources.");
     }
@@ -531,7 +728,7 @@
         seen.add(identity);
         return true;
       });
-      populateDevices();
+      if (updateSelections) populateDevices();
     } finally {
       probe?.getTracks().forEach((track) => track.stop());
     }
@@ -778,6 +975,9 @@
       tile.temporalContext.hidden = true;
       tile.temporalProgress.hidden = true;
     }
+    if (["failed", "stopped"].includes(camera.state)) clearRealtimeIndicators(tile);
+    // Reconnect snapshots must recover failed USB capture just like live events.
+    if (camera.state === "failed" && tile.source.value === "usb" && kioskCameraMode) kioskCameraMode.appliedKey = null;
   }
 
   function updateObservationFreshness(tile, metrics, snapshot = false) {
@@ -900,7 +1100,6 @@
     if (!tile) return;
     if (event.type === "camera_status") {
       showCameraStatus(event);
-      if (["failed", "stopped"].includes(event.state)) clearRealtimeIndicators(tile);
     } else if (event.type === "temporal_status") {
       renderTemporalContext(tile, event);
     } else if (event.type === "vlm_status") {
@@ -1172,9 +1371,16 @@
       }
       if (activeRun === run) { activeRun = null; setPhase("idle"); }
     }
+    return run;
   }
 
   async function stop() {
+    cancelKioskAutomation();
+    await stopRun();
+    setPhase(phase);
+  }
+
+  async function stopRun() {
     const run = activeRun;
     if (!run) return;
     run.cancelled = true;
@@ -1214,65 +1420,87 @@
 
   async function applyDemoLaunch(options, readiness) {
     let automatic = false;
+    const generation = ++kioskLaunchGeneration;
+    const current = () => generation === kioskLaunchGeneration;
+    kioskAutomatic = options.kiosk && options.automatic;
+    const watchCameras = kioskAutomatic && options.source !== "store";
+    if (watchCameras) kioskCameraMode = { source: options.source, cameras: options.cameras, ready: false };
     preparingDemo = true;
     setPhase(phase);
     notice("Preparing demo…");
+    $("vlm-enabled").checked = true;
+    $("segmentation-enabled").checked = true;
+    $("description-mode").value = "fast";
+    applyDescriptionMode();
+    $("process-every").value = "25";
+    $("video-understanding").value = options.temporal ? "temporal" : "single";
+    $("temporal-window").value = "2";
+    syncToggles();
     try {
       const [segmentation, models] = await readiness;
+      if (!current()) return;
       if (!segmentation.available) throw new Error("Object masks are unavailable. Check the demo launcher and try again.");
       if (!Array.isArray(models?.models) || !models.models.length) throw new Error("The VLM is unavailable. Check the demo launcher and try again.");
-      if (options.kiosk && options.source !== "store") {
-        try { await enumerateCameras(true); }
-        catch (error) {
-          if (options.source !== "auto" || error.name !== "NotFoundError") throw error;
-          devices = [];
+      if (watchCameras) kioskCameraMode.ready = true;
+      else {
+        if (options.kiosk && options.source !== "store") {
+          try { await enumerateCameras(true); }
+          catch (error) {
+            if (options.source !== "auto" || error.name !== "NotFoundError") throw error;
+            devices = [];
+          }
+          if (!current()) return;
+          if (options.source === "auto") options.source = devices.length >= 2 ? "usb" : "store";
+          if (options.source === "usb") {
+            options.cameras ??= devices.length >= 4 ? 4 : 2;
+            if (devices.length < options.cameras) throw new Error(`This kiosk needs ${options.cameras} different cameras; found ${devices.length}.`);
+          }
         }
-        if (options.source === "auto") options.source = devices.length >= 2 ? "usb" : "store";
-        if (options.source === "usb") {
-          options.cameras ??= devices.length >= 4 ? 4 : 2;
-          if (devices.length < options.cameras) throw new Error(`This kiosk needs ${options.cameras} different cameras; found ${devices.length}.`);
+        options.cameras ??= options.source === "usb" ? 2 : 4;
+        renderCameras(options.cameras);
+        if (options.source === "store") {
+          if (!await applyStoreDemo(current) || !current()) return;
+          presentationPreferred = true;
+          automatic = options.automatic;
+          notice(automatic ? "" : "Store demo ready. Select Start.");
+        } else {
+          for (const tile of tiles.values()) {
+            tile.source.value = "webrtc";
+            tile.updateSource();
+          }
+          automatic = kioskAutomatic;
+          presentationPreferred = automatic;
+          notice(automatic ? "" : "USB demo ready. Select Start and allow camera access.");
         }
-      }
-      options.cameras ??= options.source === "usb" ? 2 : 4;
-      renderCameras(options.cameras);
-      kioskAutomatic = options.kiosk && options.automatic;
-      $("vlm-enabled").checked = true;
-      $("segmentation-enabled").checked = true;
-      $("description-mode").value = "fast";
-      applyDescriptionMode();
-      $("process-every").value = "25";
-      $("video-understanding").value = options.temporal ? "temporal" : "single";
-      $("temporal-window").value = "2";
-      syncToggles();
-      if (options.source === "store") {
-        if (!await applyStoreDemo()) return;
-        presentationPreferred = true;
-        automatic = options.automatic;
-        notice(automatic ? "" : "Store demo ready. Select Start.");
-      } else {
-        for (const tile of tiles.values()) {
-          tile.source.value = "webrtc";
-          tile.updateSource();
-        }
-        // Upstream's dedicated Chromium kiosk profile grants camera permission.
-        // Ordinary browser links still leave permission/start under user control.
-        automatic = kioskAutomatic;
-        presentationPreferred = automatic;
-        notice(automatic ? "" : "USB demo ready. Select Start and allow camera access.");
       }
     } catch (error) {
-      notice(error.message);
+      if (current()) notice(error.message);
     } finally {
-      preparingDemo = false;
-      setPhase(phase);
+      if (current()) {
+        preparingDemo = false;
+        setPhase(phase);
+      }
     }
-    if (automatic) await start();
+    if (!current()) return;
+    if (watchCameras) await refreshUsbCatalog(true);
+    else if (automatic) await start();
   }
 
   $("two-cameras").addEventListener("click", () => renderCameras(2));
   $("four-cameras").addEventListener("click", () => renderCameras(4));
-  $("start").addEventListener("click", start);
-  $("store-demo").addEventListener("click", applyStoreDemo);
+  $("start").addEventListener("click", () => {
+    cancelKioskAutomation();
+    start();
+  });
+  // An operator changing idle camera inputs takes control from kiosk automation.
+  for (const eventName of ["click", "change"]) $("multi-stream-view").addEventListener(eventName, (event) => {
+    if (phase === "idle" && event.target.closest("#two-cameras, #four-cameras, #source-webcam, #source-rtsp, #enable-cameras, #usb-cameras, .source-controls")) {
+      cancelKioskAutomation();
+      // Let the target handler record a new choice (including an explicit clear)
+      // before a phase update rebuilds the USB options from remembered choices.
+      if (event.type !== "change" || !event.target.matches(".source, .usb-device")) setPhase(phase);
+    }
+  }, true);
   $("usb-cameras").addEventListener("click", applyUsbCameras);
   $("stop").addEventListener("click", stop);
   $("focus-stop").addEventListener("click", stop);
@@ -1357,7 +1585,20 @@
     } catch (error) { notice(error.message); }
     finally { enumerating = false; setPhase(phase); }
   });
-  navigator.mediaDevices?.addEventListener("devicechange", () => { if (phase === "idle") enumerateCameras().catch(() => {}); });
+  navigator.mediaDevices?.addEventListener("devicechange", () => {
+    enumerateCameras(false, false).then(() => {
+      if (phase === "idle") populateDevices();
+    }).catch(() => {});
+    refreshUsbCatalog(true);
+  });
+  window.addEventListener("pagehide", () => {
+    usbRefreshPaused = true;
+    window.clearTimeout(usbRefreshTimer);
+  });
+  window.addEventListener("pageshow", () => {
+    usbRefreshPaused = false;
+    scheduleUsbRefresh();
+  });
   window.addEventListener("beforeunload", () => {
     if (!activeRun) return;
     activeRun.cancelled = true;
@@ -1372,6 +1613,7 @@
   renderCameras(2);
   enumerateCameras().catch(() => {});
   loadUsbCameras().catch(() => {});
+  scheduleUsbRefresh();
   const readiness = Promise.all([checkSegmentation(), discoverModels(), loadDemoCatalog().catch(() => [])]);
   try {
     const launch = demoLaunchOptions();

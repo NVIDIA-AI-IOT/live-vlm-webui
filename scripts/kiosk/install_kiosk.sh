@@ -53,6 +53,7 @@ autostart_dir="$HOME/.config/autostart"
 if $multi_stream; then
     # Complete preparation before changing desktop autostart/configuration or units.
     bash "$repo_dir/scripts/prepare_thor_host.sh" --with-browser
+    bash "$repo_dir/scripts/prepare_usb_cameras.sh"
     thor_config=$(python3.12 -c 'import pathlib, sys; print(pathlib.Path(sys.argv[1]).expanduser().resolve())' "$thor_config")
     python3.12 "$repo_dir/scripts/thor_demo.py" --config "$thor_config" kiosk-prepare
     if ! $no_start; then

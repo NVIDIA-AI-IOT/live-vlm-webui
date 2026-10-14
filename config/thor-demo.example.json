@@ -8,6 +8,7 @@
   "cuda_dir": null,
   "cosmos_dir": ".models/cosmos",
   "ui_host": "0.0.0.0",
+  "kiosk_lan_access": false,
   "ui_port": 8090,
   "cosmos_port": 8012,
   "segmentation_image": "live-vlm-webui:segmentation-thor",

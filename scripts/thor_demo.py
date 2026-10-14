@@ -61,6 +61,7 @@ DEFAULTS = {
     "cuda_dir": None,
     "cosmos_dir": ".models/cosmos",
     "ui_host": "0.0.0.0",
+    "kiosk_lan_access": False,
     "ui_port": 8090,
     "cosmos_port": 8012,
     "segmentation_image": "live-vlm-webui:segmentation-thor",
@@ -74,6 +75,8 @@ def read_config(path: Path) -> dict:
     if not isinstance(data, dict) or set(data) - set(DEFAULTS):
         raise ValueError("Config must use the keys in config/thor-demo.example.json")
     config = DEFAULTS | data
+    if type(config["kiosk_lan_access"]) is not bool:
+        raise ValueError("kiosk_lan_access must be a boolean")
     for name in ("ui_port", "cosmos_port"):
         if type(config[name]) is not int or not 1 <= config[name] <= 65535:
             raise ValueError(f"{name} must be an integer between 1 and 65535")
@@ -138,7 +141,10 @@ def launch_commands(
     check_cosmos=False,
     output=None,
     localhost_http=False,
+    no_ssl=False,
 ):
+    if localhost_http and no_ssl:
+        raise ValueError("Choose only one of --localhost-http and --no-ssl")
     segmentation = ["bash", str(repo / "scripts/run_segmentation_thor.sh")]
     prefix, cuda = runtime_paths(config)
     cosmos = [
@@ -201,6 +207,7 @@ def launch_commands(
                 config["vlm_backend"],
             ]
             + (["--localhost-http"] if localhost_http else [])
+            + (["--no-ssl"] if no_ssl else [])
         ]
     raise ValueError(f"Unknown action: {action}")
 
@@ -215,6 +222,7 @@ def run_action(args, config, repo=REPO):
         check_cosmos=getattr(args, "cosmos", False),
         output=getattr(args, "output", None),
         localhost_http=getattr(args, "localhost_http", False),
+        no_ssl=getattr(args, "no_ssl", False),
     )
     if args.dry_run:
         print(json.dumps({"environment": overrides, "commands": commands}, indent=2))
@@ -789,8 +797,12 @@ def main():
             help="Show commands without running or writing anything",
         )
         if action == "webui":
-            command.add_argument(
+            transport = command.add_mutually_exclusive_group()
+            transport.add_argument(
                 "--localhost-http", action="store_true", help="Serve local kiosk HTTP on loopback"
+            )
+            transport.add_argument(
+                "--no-ssl", action="store_true", help="Serve HTTP on the configured ui_host"
             )
         if action in ("webui", "export-engine"):
             command.add_argument("--skip-build", action="store_true")

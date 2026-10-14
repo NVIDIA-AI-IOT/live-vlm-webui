@@ -1,5 +1,6 @@
 """Multi-stream uses upstream kiosk units; tests never install real services/models."""
 
+import hashlib
 import importlib.util
 import json
 import os
@@ -58,6 +59,9 @@ def account(tmp_path, settings):
     host.write_text(
         "#!/bin/sh\n"
         'printf \'{"action":"host","browser":"%s"}\\n\' "$1" >> "$KIOSK_TEST_EVENTS"\n'
+    )
+    (scripts / "prepare_usb_cameras.sh").write_text(
+        '#!/bin/sh\nprintf \'%s\\n\' \'{"action":"usb-hotplug"}\' >> "$KIOSK_TEST_EVENTS"\n'
     )
     (scripts / "thor_demo.py").write_text(
         "import json, os, sys\nfrom pathlib import Path\n"
@@ -122,7 +126,7 @@ def test_no_start_prepares_before_staging_without_probing_or_enabling_services(a
     result = install(account, "--multi-stream", "--no-start")
     assert result.returncode == 0, result.stderr
     events = events_for(account)
-    assert [event["action"] for event in events] == ["host", "prepare", "systemctl"]
+    assert [event["action"] for event in events] == ["host", "usb-hotplug", "prepare", "systemctl"]
     assert events[0]["browser"] == "--with-browser"
     assert events[-1]["args"] == ["--user", "daemon-reload"]
     config = account.home / ".config/live-vlm-webui/kiosk.env"
@@ -141,7 +145,7 @@ def test_failed_preparation_leaves_desktop_and_user_units_unmodified(account):
     result = install(account, "--multi-stream")
     assert result.returncode == 7
     assert not list(account.home.iterdir())
-    assert [event["action"] for event in events_for(account)] == ["host", "prepare"]
+    assert [event["action"] for event in events_for(account)] == ["host", "usb-hotplug", "prepare"]
 
 
 def test_occupied_incompatible_port_fails_before_enabling_or_installing(account):
@@ -149,7 +153,12 @@ def test_occupied_incompatible_port_fails_before_enabling_or_installing(account)
     result = install(account, "--multi-stream")
     assert result.returncode == 6
     assert not list(account.home.iterdir())
-    assert [event["action"] for event in events_for(account)] == ["host", "prepare", "check-start"]
+    assert [event["action"] for event in events_for(account)] == [
+        "host",
+        "usb-hotplug",
+        "prepare",
+        "check-start",
+    ]
 
 
 def test_reinstall_preserves_browser_display_and_unknown_settings(account):
@@ -280,9 +289,11 @@ def test_backend_reuse_requires_exact_model(settings, monkeypatch):
 
 
 @pytest.mark.parametrize("kind", ["server", "backend"])
+@pytest.mark.parametrize("lan_access", [False, True])
 def test_service_monitors_existing_instance_and_execs_only_after_port_is_free(
-    settings, monkeypatch, tmp_path, kind
+    settings, monkeypatch, tmp_path, kind, lan_access
 ):
+    settings["kiosk_lan_access"] = lan_access
     states = iter(["ready", "warming", "free"])
     waits = []
     starts = []
@@ -295,7 +306,8 @@ def test_service_monitors_existing_instance_and_execs_only_after_port_is_free(
     assert (
         starts[0][-1:] == ["cosmos"]
         if kind == "backend"
-        else starts[0][-3:] == ["webui", "--skip-build", "--localhost-http"]
+        else starts[0][-3:]
+        == ["webui", "--skip-build", "--no-ssl" if lan_access else "--localhost-http"]
     )
 
 
@@ -469,3 +481,88 @@ def test_failed_managed_restart_keeps_pending_identity(account):
     )
     assert install(account, "--multi-stream").returncode == 5
     assert pending.read_bytes() == previous
+
+
+def legacy_camera_config(path, settings):
+    """Represent a running kiosk installed before the dynamic USB device view."""
+    old_signature = hashlib.sha256(json.dumps(settings, sort_keys=True).encode()).hexdigest()
+    lines = []
+    for line in path.read_text().splitlines():
+        if line.startswith("KIOSK_CAMERA_DEVICE_LAYOUT="):
+            continue
+        if line.startswith("KIOSK_SERVER_SIGNATURE="):
+            line = "KIOSK_SERVER_SIGNATURE=" + old_signature
+        lines.append(line)
+    path.write_text("\n".join(lines) + "\n")
+
+
+def test_camera_device_layout_upgrade_changes_only_server_once(tmp_path, settings, monkeypatch):
+    env = tmp_path / "kiosk.env"
+    repo = tmp_path / "repo"
+    config = repo / "thor-demo.json"
+    kiosk.configure(env, repo, config, settings, "auto", "auto")
+    legacy_camera_config(env, settings)
+    backend_signature = next(
+        line for line in env.read_text().splitlines() if line.startswith("KIOSK_BACKEND_SIGNATURE=")
+    )
+    monkeypatch.setattr(kiosk.subprocess, "run", forbidden)
+    assert kiosk.configure(env, repo, config, settings, "auto", "auto") == {"changed", "server"}
+    assert backend_signature in env.read_text().splitlines()
+    assert "KIOSK_CAMERA_DEVICE_LAYOUT=usb-hotplug-v1" in env.read_text()
+    assert kiosk.pending_server_path(env).is_file()
+    migrated = env.read_bytes()
+    assert kiosk.configure(env, repo, config, settings, "auto", "auto") == set()
+    assert env.read_bytes() == migrated
+
+
+@pytest.mark.parametrize("deferred", [False, True])
+def test_camera_device_upgrade_handoff_once_and_respects_no_start(account, settings, deferred):
+    account.env["DISPLAY"] = ":7"
+    assert install(account, "--multi-stream").returncode == 0
+    config_dir = account.home / ".config/live-vlm-webui"
+    legacy_camera_config(config_dir / "kiosk.env", settings)
+    account.events.write_text("")
+    if deferred:
+        # Repeated preparation retains the pending handoff without touching services.
+        for _ in range(2):
+            result = install(account, "--multi-stream", "--no-start")
+            assert result.returncode == 0, result.stderr
+        commands = [
+            event["args"] for event in events_for(account) if event["action"] == "systemctl"
+        ]
+        assert commands == [["--user", "daemon-reload"]] * 2
+        assert not any(event["action"] == "check-start" for event in events_for(account))
+        assert (config_dir / "kiosk-server.pending").is_file()
+        assert (config_dir / "kiosk-profile.pending").is_file()
+        assert not (config_dir / "kiosk-backend.pending").exists()
+        account.events.write_text("")
+    result = install(account, "--multi-stream")
+    assert result.returncode == 0, result.stderr
+    commands = [event["args"] for event in events_for(account) if event["action"] == "systemctl"]
+    assert [command for command in commands if "restart" in command] == [
+        ["--user", "restart", "live-vlm-kiosk-server.service"],
+        ["--user", "restart", "live-vlm-kiosk-browser.service"],
+    ]
+    assert not (config_dir / "kiosk-server.pending").exists()
+    assert not (config_dir / "kiosk-profile.pending").exists()
+    assert not kiosk.pending_server_path(config_dir / "kiosk.env").exists()
+    account.events.write_text("")
+    result = install(account, "--multi-stream")
+    assert result.returncode == 0, result.stderr
+    commands = [event["args"] for event in events_for(account) if event["action"] == "systemctl"]
+    assert not any("restart" in command for command in commands)
+
+
+def test_lan_access_changes_server_signature_without_restarting_cosmos(tmp_path, settings):
+    env = tmp_path / "kiosk.env"
+    repo = tmp_path / "repo"
+    config = repo / "thor-demo.json"
+    kiosk.configure(env, repo, config, settings, "auto", "auto")
+    backend_signature = next(
+        line for line in env.read_text().splitlines() if line.startswith("KIOSK_BACKEND_SIGNATURE=")
+    )
+    for enabled in (True, False):
+        settings["kiosk_lan_access"] = enabled
+        assert kiosk.configure(env, repo, config, settings, "auto", "auto") == {"changed", "server"}
+        assert backend_signature in env.read_text().splitlines()
+        assert kiosk.configure(env, repo, config, settings, "auto", "auto") == set()

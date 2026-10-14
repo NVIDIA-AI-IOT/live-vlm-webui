@@ -35,6 +35,20 @@ usb_camera_arguments() {
     done
 }
 
+
+# A directory bind sees nodes added by udev after this container starts. The
+# host helper owns this USB-only view; neither Docker nor the app creates nodes.
+usb_hotplug_arguments() {
+    local camera_root="${1:-/dev/live-vlm-cameras}" owner gid permissions
+    [[ -d "${camera_root}" && ! -L "${camera_root}" ]] || return 1
+    read -r owner gid permissions < <(stat -Lc '%u %g %a' -- "${camera_root}")
+    [[ "${owner}" == 0 && "${gid}" =~ ^[0-9]+$ && "${permissions}" =~ ^[0-7]{3,4}$ ]] || return 1
+    (( (8#${permissions} & 0022) == 0 )) || return 1
+    printf '%s\0' --volume "${camera_root}:/dev/live-vlm-cameras:ro" \
+        --device-cgroup-rule 'c 81:* rw' --group-add "${gid}" \
+        --env LIVE_VLM_USB_DEVICE_ROOT=/dev/live-vlm-cameras
+}
+
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd -- "${script_dir}/.." && pwd)"
 image_name="${LIVE_VLM_SEGMENTATION_IMAGE:-live-vlm-webui:segmentation-thor}"
@@ -80,8 +94,9 @@ Retail export/run uses .models/thor-runtime prepared by:
 Explicit TRT/CUDA paths or TRT_IN_IMAGE=1 override this repository-private runtime.
 The validated exporter uses TensorRT 10.16.2.10, CUDA 13.2 libraries, Python 3.12.
 Default application binding is 127.0.0.1:8090; pass --host 0.0.0.0 for LAN access.
-Attached USB video devices are made available automatically when starting the app.
-Attach cameras before launch; recreate the app container after connecting new ones.
+The turnkey installer enables USB cameras connected before or after launch.
+For a standalone setup, enable hot-plug once with: bash scripts/prepare_usb_cameras.sh
+Without that host setup, only USB devices attached at container creation are mapped.
 HELP
 }
 
@@ -186,12 +201,21 @@ if [[ -n "${LIVE_VLM_SEGMENTATION_BASE_IMAGE:-}" ]]; then
     build_args+=(--build-arg "SEGMENTATION_BASE_IMAGE=${LIVE_VLM_SEGMENTATION_BASE_IMAGE}")
 fi
 
-# Map only attached USB video nodes, without privileged mode or a /dev bind.
-# Camera discovery/permission is independent of browser-camera access.
+# The host-owned USB view stays present even when no cameras are attached.
+# Legacy standalone launches retain their existing per-device mappings until
+# host hot-plug support is installed; the turnkey installer always installs it.
 if [[ "${mode}" == run ]]; then
-    while IFS= read -r -d '' camera_argument; do
-        runtime_args+=("${camera_argument}")
-    done < <(usb_camera_arguments /sys/class/video4linux /dev)
+    if [[ -e /dev/live-vlm-cameras || -L /dev/live-vlm-cameras ]]; then
+        usb_hotplug_arguments /dev/live-vlm-cameras >/dev/null || \
+            fail 'Invalid USB camera directory; run bash scripts/prepare_usb_cameras.sh.'
+        while IFS= read -r -d '' camera_argument; do
+            runtime_args+=("${camera_argument}")
+        done < <(usb_hotplug_arguments /dev/live-vlm-cameras)
+    else
+        while IFS= read -r -d '' camera_argument; do
+            runtime_args+=("${camera_argument}")
+        done < <(usb_camera_arguments /sys/class/video4linux /dev)
+    fi
 fi
 
 # Elevate Docker alone if necessary, leaving downloaded/generated files user-owned.

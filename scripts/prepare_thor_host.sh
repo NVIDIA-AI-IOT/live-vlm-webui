@@ -124,6 +124,10 @@ if ${with_browser}; then
         fi
     done
     ${browser_ready} || add_package chromium-browser
+    # The kiosk's X11 helper corrects fullscreen state and positions app windows.
+    for pair in 'wmctrl:wmctrl' 'xprop:x11-utils'; do
+        command -v "${pair%%:*}" >/dev/null 2>&1 || add_package "${pair#*:}"
+    done
 fi
 had_docker=false
 if command -v docker >/dev/null 2>&1; then

@@ -3,10 +3,14 @@
 import asyncio
 import ctypes
 import errno
+import os
 import queue
+import shutil
+import stat
 import struct
 import threading
 from fractions import Fraction
+from pathlib import Path
 from types import SimpleNamespace
 
 import av
@@ -83,6 +87,156 @@ def test_discovery_requires_usb_capture_capability_readable_node_and_supported_m
         {"device_id": "video5", "label": "Test USB camera (CAMERA-SERIAL)"},
     ]
     assert closed == [0, 1, 3, 5]
+
+
+def test_device_root_uses_default_or_configured_view_without_requiring_cameras(
+    tmp_path, monkeypatch
+):
+    monkeypatch.delenv("LIVE_VLM_USB_DEVICE_ROOT", raising=False)
+    assert usb._configured_device_root() == Path("/dev")
+    view = tmp_path / "usb view"
+    monkeypatch.setenv("LIVE_VLM_USB_DEVICE_ROOT", str(view))
+    assert usb._configured_device_root() == view
+    assert not view.exists(), "Configuration must not create or open a device view"
+
+
+@pytest.mark.parametrize("value", ["", "relative/cameras", "video0"])
+def test_device_root_rejects_relative_or_empty_configuration(monkeypatch, value):
+    monkeypatch.setenv("LIVE_VLM_USB_DEVICE_ROOT", value)
+    with pytest.raises(ValueError, match="absolute directory"):
+        usb._configured_device_root()
+
+
+@pytest.fixture
+def usb_device_tree(tmp_path, monkeypatch):
+    sysfs = tmp_path / "video4linux"
+    sysfs.mkdir()
+    view = tmp_path / "camera view"
+    view.mkdir()
+    subsystem = tmp_path / "usb"
+    subsystem.mkdir()
+    monkeypatch.setattr(usb, "_SYSFS_ROOT", sysfs)
+    monkeypatch.setattr(usb, "_DEVICE_ROOT", view)
+
+    def add(number, serial="CAMERA-A"):
+        parent = tmp_path / serial
+        if not parent.exists():
+            parent.mkdir()
+            (parent / "idVendor").write_text("046d")
+            (parent / "idProduct").write_text("082d")
+            (parent / "serial").write_text(serial)
+            (parent / "subsystem").symlink_to(subsystem)
+        node = sysfs / f"video{number}"
+        node.mkdir()
+        (node / "device").symlink_to(parent)
+        (node / "dev").write_text(f"81:{number}\n")
+        path = view / node.name
+        path.touch()
+        return path
+
+    return sysfs, view, add
+
+
+def test_catalog_tracks_hotplug_and_renumbered_replug_in_same_process(usb_device_tree, monkeypatch):
+    sysfs, view, add = usb_device_tree
+    opened, closed = [], []
+
+    def open_node(path, flags):
+        assert path.parent == view
+        assert flags & os.O_NOFOLLOW
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        number = int(path.name.removeprefix("video"))
+        opened.append(number)
+        return number
+
+    device_os = SimpleNamespace(**vars(os))
+    device_os.open = open_node
+    device_os.fstat = lambda fd: SimpleNamespace(st_mode=stat.S_IFCHR, st_rdev=os.makedev(81, fd))
+    device_os.close = closed.append
+    monkeypatch.setattr(usb, "os", device_os)
+    monkeypatch.setattr(
+        usb,
+        "_capabilities",
+        lambda fd: (
+            usb._CAP_STREAMING | (usb._VIDEO_CAPTURE if fd % 2 == 0 else 0x00800000),
+            "C920",
+        ),
+    )
+    monkeypatch.setattr(usb, "_select_mode", lambda _fd: mode())
+    assert usb.discover_usb_cameras() == []
+    for number in (0, 1):
+        add(number, "CAMERA-A")
+    assert usb.discover_usb_cameras() == [{"device_id": "video0", "label": "C920 (CAMERA-A)"}]
+    for number in (2, 3):
+        add(number, "CAMERA-B")
+    # Kernel discovery may precede creation of the host's mirrored device node.
+    (view / "video2").unlink()
+    assert usb.discover_usb_cameras() == [{"device_id": "video0", "label": "C920 (CAMERA-A)"}]
+    (view / "video2").write_bytes(b"")
+    assert usb.discover_usb_cameras() == [
+        {"device_id": "video0", "label": "C920 (CAMERA-A)"},
+        {"device_id": "video2", "label": "C920 (CAMERA-B)"},
+    ]
+    # Sysfs disappears before udev removes the old aliases from the mounted view.
+    for number in (0, 1):
+        shutil.rmtree(sysfs / f"video{number}")
+    assert usb.discover_usb_cameras() == [{"device_id": "video2", "label": "C920 (CAMERA-B)"}]
+    for number in (4, 5):
+        add(number, "CAMERA-A")
+    assert usb.discover_usb_cameras() == [
+        {"device_id": "video2", "label": "C920 (CAMERA-B)"},
+        {"device_id": "video4", "label": "C920 (CAMERA-A)"},
+    ]
+    with pytest.raises(ValueError, match="unavailable"):
+        usb.resolve_usb_camera("video0")
+    assert usb.resolve_usb_camera("video4") == view / "video4"
+    assert sorted(opened) == sorted(closed)
+
+
+@pytest.mark.parametrize(
+    "kind,major,minor,message",
+    [
+        (stat.S_IFREG, 81, 2, "video device"),
+        (stat.S_IFCHR, 1, 3, "sysfs"),
+        (stat.S_IFCHR, 81, 4, "sysfs"),
+    ],
+)
+def test_open_rejects_stale_or_invalid_alias_before_any_ioctl(
+    usb_device_tree, monkeypatch, kind, major, minor, message
+):
+    _, _, add = usb_device_tree
+    path = add(2)
+    closed = []
+    monkeypatch.setattr(usb.os, "open", lambda *_: 19)
+    monkeypatch.setattr(
+        usb.os,
+        "fstat",
+        lambda _fd: SimpleNamespace(st_mode=kind, st_rdev=os.makedev(major, minor)),
+    )
+    monkeypatch.setattr(usb.os, "close", closed.append)
+    with pytest.raises(ValueError, match=message):
+        usb._device_fd(path)
+    assert closed == [19]
+
+
+def test_open_rejects_symlink_alias(usb_device_tree):
+    _, _, add = usb_device_tree
+    path = add(2)
+    path.unlink()
+    path.symlink_to("/dev/null")
+    with pytest.raises(OSError) as error:
+        usb._device_fd(path)
+    assert error.value.errno == errno.ELOOP
+
+
+def test_open_checks_usb_ancestry_before_opening(usb_device_tree, monkeypatch):
+    sysfs, _, add = usb_device_tree
+    path = add(2)
+    (sysfs / "video2" / "device").unlink()
+    monkeypatch.setattr(usb.os, "open", lambda *_: pytest.fail("must check USB ancestry first"))
+    with pytest.raises(ValueError, match="USB video device"):
+        usb._device_fd(path)
 
 
 def test_usb_parent_requires_real_usb_ancestry(tmp_path):

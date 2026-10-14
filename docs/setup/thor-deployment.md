@@ -20,15 +20,20 @@ The browser selects inputs automatically:
 | Four or more | Four USB streams. |
 | Zero or one | Four recorded store streams. |
 
-The dedicated Chromium profile grants camera permission automatically and uses
-real camera video. The kiosk browser runs **on the Thor**. The normal
-multi-stream UI also offers **Jetson USB camera** for access to attached cameras
-from a remote browser: choose **2 cameras**, click **USB cameras** in
+The automatic kiosk captures USB cameras directly on the Thor. The kiosk
+browser runs **on the Thor**. The normal multi-stream UI also offers
+**Jetson USB camera** for access to attached cameras from a remote browser:
+choose **2 cameras**, click **Jetson USB cameras** in
 **Camera and App Control**, then **Open Cameras and Start VLM Analysis**. **Browser camera** always refers to the computer running the
-browser. The kiosk opens `http://localhost:8090/multi-camera`, binds the WebUI to
-loopback, and avoids self-signed certificate prompts. This localhost exception
-does not enable camera access from a LAN HTTP address; the normal remote WebUI
-continues to use HTTPS.
+browser. By default, the kiosk opens `http://localhost:8090/multi-camera`, binds
+the WebUI to loopback, and avoids self-signed certificate prompts. Optional LAN
+access is described below; ordinary remote WebUI deployments use HTTPS.
+
+Each USB stream needs a distinct physical camera. If the Thor detects fewer
+cameras than the selected layout needs, the unassigned tile shows a waiting
+message and Start remains disabled. The list updates automatically when another
+camera appears. A camera already selected in one USB tile cannot be selected in
+another. If a connected camera never appears, check its USB cable, port, or hub.
 
 **Branch availability:** use a checkout containing `feat/multi-stream`. Locally
 committed changes are unavailable from a fresh clone of
@@ -43,7 +48,7 @@ storage** for first-time public Cosmos conversion. Other hardware or JetPack
 versions require adaptation and validation.
 
 Run without sudo as the desktop demo user. Missing Ubuntu/Docker/browser
-prerequisites may require a sudo password during installation. GPU drivers and
+prerequisites and USB hot-plug rules may require a sudo password during installation. GPU drivers and
 JetPack are not upgraded. If Docker needs reconfiguration while other containers
 are running, preparation stops instead of restarting those workloads.
 
@@ -62,9 +67,14 @@ fullscreen and window modes.
 
 Camera flags are optional. The UI includes **2 cameras** and **4 cameras**
 controls; the installer selects automatically when no camera option is given.
-Connect USB cameras before starting the application. The Thor runner passes
-attached USB video devices into its container automatically. If cameras are
-connected later, recreate the app container to include the new device mappings.
+USB cameras can be connected before or after the service starts, including
+a boot with no cameras attached. The installer creates a small host udev helper
+and a persistent camera-only device directory; the container sees additions
+and removals without restarting the WebUI, Cosmos, or segmentation runtime.
+The camera list refreshes automatically. An automatic USB kiosk waits for enough
+cameras; an automatic source kiosk switches from store clips to live USB cameras
+when enough are connected. Removing/reconnecting cameras replaces only that
+kiosk camera session. Selecting **Stop** disables automatic restarts for that page.
 Append options to the same installer command:
 
 | Option | Behavior |
@@ -86,6 +96,20 @@ enable the server services.
 With no `--multi-stream` flag, the installer keeps upstream's single-camera
 behavior: install helpers and an example configuration, then leave configuration
 and server enablement to the user. See [single-camera setup](kiosk.md).
+
+## Optional access from another computer
+
+To expose the same kiosk on a trusted local network, set `"kiosk_lan_access": true`
+and `"ui_host": "0.0.0.0"` in your local `thor-demo.json`, then rerun
+`./scripts/kiosk/install_kiosk.sh --multi-stream`. The installer refreshes the
+WebUI and browser while reusing Cosmos. Open `http://JETSON_IP:8090/multi-camera`
+(use the configured `ui_port` if different). The kiosk on the Thor continues to
+use localhost; no second WebUI or model server is started.
+
+**Jetson USB cameras** work from that remote HTTP page because capture runs on
+Thor. **Browser cameras** still require HTTPS or localhost. This optional HTTP
+endpoint has no authentication or encryption; use it only on a trusted demo
+network. The default `kiosk_lan_access: false` keeps the kiosk on localhost.
 
 ## Models and prepared assets
 
@@ -152,10 +176,17 @@ and [desktop autostart/display modes](https://github.com/NVIDIA-AI-IOT/live-vlm-
 Those changes were ported into this feature branch; this is not a full merge of
 upstream main.
 
-Asset preparation has passed on the development Thor, and browser behavior was
-checked with mocked cameras and backends. The user services were not installed
-or enabled during that validation. A fresh physical Thor, full public-model
-conversion, and unattended reboot still need end-to-end verification.
+Validation includes unit/integration checks, browser checks with mocked devices,
+and a real Thor test detecting two USB cameras after the WebUI had started with
+none. Both streams produced temporal VLM results and segmentation. After a
+physical camera reconnect, a second Thor with prepared model assets passed an
+unattended reboot with automatic desktop login, the normal fullscreen kiosk,
+and two USB streams completing segmentation and fresh four-frame video inference.
+The post-boot observation used server counters over roughly 3 seconds; it was
+not a sustained performance benchmark or a check of displayed browser pixels.
+See [the hardware validation scope](kiosk.md#verification-and-removal). Full
+public-model conversion from scratch and four physical USB cameras, including
+their unattended boot, remain unverified.
 
 On the destination, verify live video, mask alignment, independent descriptions,
 **Stop**, and recovery after a service restart. After stopping browser streams,

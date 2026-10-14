@@ -281,3 +281,63 @@ def test_runtime_and_engine_export_use_same_configured_native_paths(tmp_path):
         "export-engine", config, skip_build=True, output=tmp_path / "new.engine"
     )
     assert export[export.index("--export-engine") + 1] == str(tmp_path / "new.engine")
+
+
+def test_kiosk_lan_access_defaults_off_for_existing_configuration(tmp_path):
+    path = tmp_path / "thor-demo.json"
+    path.write_text("{}")
+    assert thor.read_config(path)["kiosk_lan_access"] is False
+    assert config_at(tmp_path, kiosk_lan_access=True)["kiosk_lan_access"] is True
+
+
+@pytest.mark.parametrize("value", ["true", "false", 0, 1, None, [], {}])
+def test_kiosk_lan_access_rejects_non_boolean_configuration(tmp_path, value):
+    with pytest.raises(ValueError, match="kiosk_lan_access must be a boolean"):
+        config_at(tmp_path, kiosk_lan_access=value)
+
+
+@pytest.mark.parametrize("flag", [None, "--localhost-http", "--no-ssl"])
+def test_webui_transport_cli_forwards_only_selected_flag_without_launching(tmp_path, flag):
+    config_at(tmp_path)
+    command = [
+        os.sys.executable,
+        str(SCRIPT),
+        "--config",
+        str(tmp_path / "thor-demo.json"),
+        "webui",
+        "--dry-run",
+        "--skip-build",
+    ]
+    if flag:
+        command.append(flag)
+    result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=10)
+    assert result.returncode == 0, result.stderr
+    (planned,) = json.loads(result.stdout)["commands"]
+    assert ("--localhost-http" in planned) == (flag == "--localhost-http")
+    assert ("--no-ssl" in planned) == (flag == "--no-ssl")
+    assert planned[planned.index("--host") + 1] == "0.0.0.0"
+    assert planned[planned.index("--port") + 1] == "8090"
+    assert not (tmp_path / ".models").exists()
+
+
+def test_webui_transport_flags_are_mutually_exclusive_before_launch(tmp_path):
+    result = subprocess.run(
+        [
+            os.sys.executable,
+            str(SCRIPT),
+            "--config",
+            str(tmp_path / "missing.json"),
+            "webui",
+            "--localhost-http",
+            "--no-ssl",
+            "--dry-run",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert result.returncode == 2
+    assert "not allowed with argument" in result.stderr
+    with pytest.raises(ValueError, match="Choose only one"):
+        thor.launch_commands("webui", config_at(tmp_path), localhost_http=True, no_ssl=True)

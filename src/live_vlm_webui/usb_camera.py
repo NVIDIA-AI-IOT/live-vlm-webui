@@ -36,8 +36,19 @@ except ImportError:  # Browser and RTSP sources remain usable on non-Linux hosts
 
 _SUPPORTED = sys.platform.startswith("linux") and fcntl is not None
 
+
+def _configured_device_root():
+    """Use the host-managed device view when running inside the Thor container."""
+    value = os.environ.get("LIVE_VLM_USB_DEVICE_ROOT")
+    if value is None:
+        return Path("/dev")
+    if not value or "\0" in value or not Path(value).is_absolute():
+        raise ValueError("LIVE_VLM_USB_DEVICE_ROOT must be an absolute directory path")
+    return Path(value)
+
+
 _SYSFS_ROOT = Path("/sys/class/video4linux")
-_DEVICE_ROOT = Path("/dev")
+_DEVICE_ROOT = _configured_device_root()
 _DEVICE_ID = re.compile(r"video[0-9]+\Z")
 _VIDEO_CAPTURE = 1
 _MEMORY_MMAP = 1
@@ -202,10 +213,25 @@ def _usb_parent(node):
 
 
 def _device_fd(path):
+    node = _SYSFS_ROOT / path.name
+    parent = _usb_parent(node)
+    if not _DEVICE_ID.fullmatch(path.name) or parent is None:
+        raise ValueError("USB camera must have a current USB video device entry")
     fd = os.open(path, os.O_RDWR | os.O_NONBLOCK | os.O_CLOEXEC | os.O_NOFOLLOW)
     try:
-        if not stat.S_ISCHR(os.fstat(fd).st_mode):
+        identity = os.fstat(fd)
+        if not stat.S_ISCHR(identity.st_mode):
             raise ValueError("USB camera must be a video device")
+        # A hotplug view can briefly contain an old node while udev reconciles it.
+        # Compare the opened descriptor with live sysfs before issuing any ioctl.
+        number = (node / "dev").read_text().strip()
+        if not re.fullmatch(r"[0-9]+:[0-9]+", number):
+            raise ValueError("USB camera has an invalid sysfs device number")
+        major, minor = map(int, number.split(":"))
+        if (os.major(identity.st_rdev), os.minor(identity.st_rdev)) != (major, minor):
+            raise ValueError("USB camera device does not match its current sysfs entry")
+        if _usb_parent(node) != parent:
+            raise ValueError("USB camera changed while opening its device")
     except BaseException:
         os.close(fd)
         raise

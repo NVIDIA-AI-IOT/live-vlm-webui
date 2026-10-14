@@ -20,7 +20,7 @@ Each camera tile can use a browser camera, a Jetson USB camera, an RTSP stream, 
 sample, with its own prompt override and separate results. **Browser camera**
 uses cameras connected to the computer running the browser and requires browser
 permission. **Jetson USB camera** uses cameras connected to the server, including
-when viewing from a remote laptop. Select **2 cameras**, click **USB cameras**
+when viewing from a remote laptop. Select **2 cameras**, click **Jetson USB cameras**
 under **Camera and App Control**, then click **Open Cameras and Start VLM
 Analysis** to use two attached Jetson cameras. You can also
 choose **Jetson USB camera** and a device separately in each tile. Recorded samples
@@ -172,12 +172,30 @@ releases it for another session. Capture prefers an enumerated MJPEG mode up to
 limit USB bandwidth. Both models receive the same captured originals through
 the existing frame-matched processing path.
 
-The Thor application runner automatically passes attached USB video devices and
-their device-group permissions into the container. It does not need a camera
-flag, privileged mode, or access to the whole `/dev` directory. Connect cameras
-before starting the application. After attaching new cameras, recreate the app
-container so Docker receives their device mappings; refreshing the page alone
-cannot add a new device to an existing container.
+The turnkey installer enables USB hot-plug with `scripts/prepare_usb_cameras.sh`.
+A root-owned udev helper mirrors only current USB video device nodes into
+`/dev/live-vlm-cameras`; tmpfiles creates the directory at boot even when empty.
+The runner binds that directory read-only, adds the host video group, and permits
+read/write access to video device major 81. The app remains non-root, with no
+privileged container or whole-`/dev` mount. `LIVE_VLM_USB_DEVICE_ROOT` selects this
+node directory; direct Python installations default to `/dev`. Discovery checks
+USB ancestry, capture capabilities, supported modes, and sysfs device identity.
+
+The same running container discovers cameras attached later, including after a
+zero-camera boot. Manual camera choices refresh while idle. Automatic USB/auto
+kiosks monitor arrivals/removals and recreate only their camera session; explicit
+Stop cancels this automation. Manual sessions stay under user control: after
+unplugging a camera, stop the session, reconnect/select devices, and start again.
+
+Standalone runner deployments can install the same host support once with
+`bash scripts/prepare_usb_cameras.sh`. Without it, the runner retains its legacy
+mapping of cameras attached at container creation. The turnkey installer always
+installs hot-plug support automatically.
+
+When upgrading an existing kiosk, rerun `scripts/kiosk/install_kiosk.sh --multi-stream`.
+It refreshes the WebUI container and kiosk browser once to apply the new device
+mounts; the Cosmos service is reused. `--no-start` defers this handoff until the
+next normal installation. Later camera connections do not restart those services.
 
 ## RTSP cameras
 
@@ -394,6 +412,11 @@ The tests use synthetic video tracks, real local WebRTC negotiation, and a local
 OpenAI-compatible HTTP endpoint. They verify two/four-camera session creation,
 configuration validation, independent image requests and responses, session
 WebSocket isolation, bounded inference concurrency, setup rollback, and cleanup.
-They do not require a physical camera, GPU, or downloaded vision model. Physical
-multi-camera throughput and model quality still require deployment testing on
-the intended Jetson and camera feeds.
+They do not require a physical camera, GPU, or downloaded vision model. A separate
+Thor check passed an unattended reboot with two physical USB cameras after a
+camera reconnect: both streams received fresh frames, completed segmentation,
+and returned successful four-frame temporal video results. This short startup
+check used server counters, not displayed browser pixels or sustained throughput.
+Four physical USB cameras and full public Cosmos conversion from scratch remain
+unverified; sustained performance and model quality still need testing on the
+intended Jetson and feeds. See [the kiosk validation scope](../setup/kiosk.md#verification-and-removal).

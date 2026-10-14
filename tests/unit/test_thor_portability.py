@@ -18,8 +18,7 @@ def launch_environment(tmp_path):
     binary_dir.mkdir()
     log = tmp_path / "commands.jsonl"
     executable = binary_dir / "fake_command.py"
-    executable.write_text(
-        """#!/usr/bin/env python3
+    executable.write_text("""#!/usr/bin/env python3
 import json
 import os
 from pathlib import Path
@@ -46,8 +45,7 @@ if name == 'openssl':
         Path(sys.argv[sys.argv.index(flag) + 1]).write_text('test fixture, not a certificate')
     raise SystemExit(0)
 raise SystemExit('Unexpected external command: ' + name)
-"""
-    )
+""")
     executable.chmod(0o755)
     for name in ("docker", "sudo", "curl", "wget", "openssl", "uname"):
         (binary_dir / name).symlink_to(executable)
@@ -371,3 +369,61 @@ def test_segmentation_mount_delimiters_fail_before_external_calls(
     assert result.returncode != 0
     assert "bind paths" in result.stderr.lower()
     assert logged_commands(log) == []
+
+
+def hotplug_arguments(tmp_path, metadata="0 44 755", *, symlink=False):
+    """Inspect the zero-camera launch plan without creating host devices."""
+    directory = tmp_path / "camera view"
+    directory.mkdir()
+    root = directory
+    if symlink:
+        root = tmp_path / "untrusted link"
+        root.symlink_to(directory, target_is_directory=True)
+    commands = tmp_path / "commands"
+    commands.mkdir()
+    stat_command = commands / "stat"
+    stat_command.write_text("#!/bin/sh\nprintf '%s\\n' " + shlex.quote(metadata) + "\n")
+    stat_command.chmod(0o755)
+    definitions = (
+        (ROOT / "scripts/run_segmentation_thor.sh").read_text().split("\nscript_dir=", 1)[0]
+    )
+    result = subprocess.run(
+        ["bash", "-c", definitions + '\nusb_hotplug_arguments "$1"', "hotplug", str(root)],
+        env={**os.environ, "PATH": f"{commands}:{os.environ['PATH']}"},
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=10,
+    )
+    return result, directory
+
+
+def test_usb_hotplug_empty_directory_keeps_future_device_access(tmp_path):
+    result, directory = hotplug_arguments(tmp_path)
+    assert result.returncode == 0, result.stderr
+    args = result.stdout.rstrip("\0").split("\0")
+    assert args == [
+        "--volume",
+        f"{directory}:/dev/live-vlm-cameras:ro",
+        "--device-cgroup-rule",
+        "c 81:* rw",
+        "--group-add",
+        "44",
+        "--env",
+        "LIVE_VLM_USB_DEVICE_ROOT=/dev/live-vlm-cameras",
+    ]
+    assert not list(directory.iterdir())
+    assert "--device" not in args and "--privileged" not in args
+
+
+@pytest.mark.parametrize("metadata", ["1000 44 755", "0 44 775", "0 44 777", "0 44 invalid"])
+def test_usb_hotplug_rejects_untrusted_host_view(tmp_path, metadata):
+    result, _ = hotplug_arguments(tmp_path, metadata)
+    assert result.returncode != 0
+    assert result.stdout == ""
+
+
+def test_usb_hotplug_rejects_symlink_directory(tmp_path):
+    result, _ = hotplug_arguments(tmp_path, symlink=True)
+    assert result.returncode != 0
+    assert result.stdout == ""

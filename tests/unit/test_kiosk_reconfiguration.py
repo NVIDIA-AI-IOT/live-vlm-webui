@@ -223,3 +223,21 @@ def test_bad_pending_identity_preserves_configuration(installed):
 def test_camera_only_choice_does_not_record_server_handoff(installed):
     kiosk.configure(installed.env, installed.repo, installed.config, installed.old, "usb", "2")
     assert not kiosk.pending_server_path(installed.env).exists()
+
+
+@pytest.mark.parametrize(
+    ("flags", "recognized"),
+    [
+        (["--localhost-http"], True),
+        (["--no-ssl"], True),
+        ([], False),
+        (["--no-ssl", "--localhost-http"], False),
+        (["--no-ssl", "--host", "0.0.0.0"], False),
+        (["--unknown-transport"], False),
+    ],
+)
+def test_managed_identity_accepts_only_exact_local_or_lan_launch(installed, flags, recognized):
+    path = installed.process / "cmdline"
+    prefix = path.read_bytes().rstrip(b"\0").split(b"\0")[:-1]
+    path.write_bytes(b"\0".join([*prefix, *(flag.encode() for flag in flags)]) + b"\0")
+    assert kiosk.managed_server_running(installed.repo, installed.config) is recognized

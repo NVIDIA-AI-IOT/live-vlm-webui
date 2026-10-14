@@ -33,7 +33,6 @@
 .multi-stream-page .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .multi-stream-page .input-source-tab .lucide, .multi-stream-page .camera-run-actions .lucide, .multi-stream-page #focus-stop .lucide { width: 14px; height: 14px; margin-right: 4px; }
 .multi-stream-page .camera-run-actions #start { margin-bottom: 8px; }
-.multi-stream-page .recorded-source-option { margin-top: 8px; padding: 8px; font-size: 12px; }
 .multi-stream-page .temporal-hint { margin-bottom: 16px; }
 .multi-stream-page .advanced { margin: 0 0 14px; }
 .multi-stream-page :is(.advanced, .camera-prompt, .camera-details, .demo-note) > summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); padding: 8px 0; }
@@ -67,6 +66,8 @@
 .multi-stream-page .source-controls { padding: 14px 16px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 12px; border-bottom: 1px solid var(--border-color); }
 .multi-stream-page .source-controls > div { min-width: 0; }
 .multi-stream-page .source-controls select { text-overflow: ellipsis; }
+.multi-stream-page .usb-selection-hint { color: var(--error-color); }
+.multi-stream-page .usb-device[aria-invalid="true"] { border-color: var(--error-color); }
 .multi-stream-page .video-stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; overflow: hidden; }
 .multi-stream-page .video-stage video { width: 100%; height: 100%; object-fit: contain; }
 .multi-stream-page .video-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; color: #999; font-size: 13px; pointer-events: none; }

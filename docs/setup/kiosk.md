@@ -262,6 +262,21 @@ Use the profile only for this demo since that permission bypass applies to
 other sites opened in the same browser. `--autoplay-policy=no-user-gesture-required`
 allows playback without a click. The browser sandbox remains enabled.
 
+## USB cameras connected after startup
+
+The multi-stream installer includes USB hot-plug support. Cameras connected after
+boot become available to the running WebUI automatically. The automatic kiosk
+uses server-side USB capture and updates its own camera session when devices
+arrive or leave; model services keep running. **Stop** cancels automatic camera
+restarts until the page is reloaded. Manual sessions use Stop/Start to reconnect
+an unplugged camera. No WebUI or model-service restart is needed for hot-plug.
+
+The host setup installs `/etc/udev/rules.d/99-live-vlm-cameras.rules`,
+`/etc/tmpfiles.d/live-vlm-cameras.conf`, and a root-owned helper under
+`/usr/local/libexec/live-vlm-webui/`. They maintain only the camera device view at
+`/dev/live-vlm-cameras`. To check the installed setup without changing it, run
+`bash scripts/prepare_usb_cameras.sh --check` from the repository.
+
 ## Recovery Commands
 
 These commands are suitable for a one-page staff recovery sheet:
@@ -294,10 +309,21 @@ Verify on the target device before unattended use:
    Camera permission errors, device removal, and hung inference/browser tabs can
    need operator intervention; this setup does not supervise model inference.
 
-For this fork, asset preparation passed on the development Thor and browser
-behavior was checked with mocks. Kiosk user units were not installed or enabled
-as part of that check. A fresh Thor, full public Cosmos conversion, and
-unattended reboot still need end-to-end validation.
+After physically reconnecting a C920, a second Thor with prepared model assets
+passed an unattended reboot with two distinct USB camera streams, automatic
+desktop login, the normal fullscreen kiosk, and stable WebUI/Cosmos services.
+Both streams received new frames, completed segmentation, and returned fresh
+Cosmos results using native video clips containing four frames. In a roughly
+3-second observation, reported segmentation was about 24.2 FPS per stream and
+the latest VLM end-to-end latencies were 1.34 and 1.48 seconds. This startup check
+used server counters; it did not inspect displayed browser pixels or establish
+sustained performance.
+
+A separate test started the WebUI without cameras, then attached two USB cameras
+in software and verified both live previews, temporal VLM results, and advancing
+segmentation counters without restarting the app or models. Four physical USB
+cameras and their unattended boot, full public Cosmos conversion from scratch,
+and sustained performance remain unverified.
 
 Optional icons and Markdown libraries load from CDNs. If unavailable, the demo
 can still start with plain text and missing decorative icons, although initial
