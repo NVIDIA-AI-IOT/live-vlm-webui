@@ -80,6 +80,14 @@ cert.pem
 key.pem
 *.pem
 
+# Local video recordings, including copies outside artifacts/
+*.[mM][pP]4
+*.[mM]4[vV]
+*.[mM][oO][vV]
+*.[mM][kK][vV]
+*.[aA][vV][iI]
+*.[wW][eE][bB][mM]
+
 # Local segmentation models and validation outputs
 .models/
 artifacts/
